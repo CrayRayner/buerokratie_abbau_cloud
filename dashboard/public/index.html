@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bürokratieabbau Bayern — Analyse-Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">BA</div>
+      <div>
+        <h1>Bürokratieabbau Bayern</h1>
+        <p class="sub">Analyse-Dashboard — unternehmensrelevante Belastungen &amp; Entlastungspotenzial</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <select id="run-select" class="run-select" title="Analyse-Lauf (DB-Datei) wählen"></select>
+      <span class="meta" id="meta-run">—</span>
+      <a class="btn" id="csv-link" href="/api/export/csv">CSV-Export</a>
+      <button class="btn btn-accent" id="btn-refresh">Aktualisieren</button>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="kpi-grid" id="kpi-grid"></section>
+
+    <section class="chart-grid">
+      <div class="card chart-card">
+        <h3>Reform-Priorität <span class="hint">Umsetzbarkeit × Relevanz</span></h3>
+        <div class="chart-wrap"><canvas id="chart-priority"></canvas></div>
+      </div>
+      <div class="card chart-card">
+        <h3>Rechtsbindung <span class="hint">Landesrecht = frei kürzbar</span></h3>
+        <div class="chart-wrap"><canvas id="chart-legal"></canvas></div>
+      </div>
+      <div class="card chart-card">
+        <h3>Pflichttypen</h3>
+        <div class="chart-wrap"><canvas id="chart-category"></canvas></div>
+      </div>
+      <div class="card chart-card">
+        <h3>Unternehmensrelevanz</h3>
+        <div class="chart-wrap"><canvas id="chart-relevance"></canvas></div>
+      </div>
+      <div class="card chart-card">
+        <h3>Adressat <span class="hint">wer trägt die Pflicht?</span></h3>
+        <div class="chart-wrap"><canvas id="chart-adressat"></canvas></div>
+      </div>
+    </section>
+
+    <section class="card table-card">
+      <div class="filters">
+        <input type="search" id="f-search" placeholder="Suche Gesetz / Belegstelle…" autocomplete="off">
+        <select id="f-priority"><option value="">Alle Prioritäten</option></select>
+        <select id="f-legal"><option value="">Alle Rechtsbindungen</option></select>
+        <select id="f-category"><option value="">Alle Pflichttypen</option></select>
+        <select id="f-adressat"><option value="">Alle Adressaten</option></select>
+        <label class="chk"><input type="checkbox" id="f-review"> nur „Prüfung nötig"</label>
+        <label class="chk"><input type="checkbox" id="f-sc"> nur Zweitcheck-Bedenken</label>
+        <label class="chk"><input type="checkbox" id="f-group"> nach Gesetz gruppieren</label>
+        <span class="result-count" id="result-count"></span>
+      </div>
+      <div class="table-scroll">
+        <table id="hits-table">
+          <thead>
+            <tr>
+              <th class="sortable" data-sort="title">Gesetz</th>
+              <th class="sortable" data-sort="priority">Prio</th>
+              <th class="sortable" data-sort="category">Pflichttyp</th>
+              <th class="sortable" data-sort="legal">Rechtsbindung</th>
+              <th class="sortable" data-sort="confidence">Votes</th>
+              <th>Prüfung</th>
+              <th>Belegstelle / Vorschlag</th>
+            </tr>
+          </thead>
+          <tbody id="hits-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <div id="empty" class="empty hidden">
+      <p>Noch keine aktuellen Analysen.</p>
+      <p class="sub">Starte einen Lauf mit <code>npm run analyze</code> — das Dashboard zeigt nur Analysen auf dem aktuellen Crawl-Stand.</p>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

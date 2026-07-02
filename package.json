@@ -1,0 +1,24 @@
+{
+  "name": "buerokratie-abbau",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Batch-Analyse bayerischer Rechtsverordnungen auf Bürokratiehemmnisse",
+  "scripts": {
+    "crawl": "node crawler/index.js",
+    "analyze": "node analyzer/index.js",
+    "export-hits": "node export-hits.js",
+    "dashboard": "node dashboard/server/index.js",
+    "pipeline": "node pipeline.js",
+    "status": "node pipeline.js --status"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.0.0",
+    "chart.js": "^4.4.0",
+    "cheerio": "^1.0.0",
+    "express": "^4.21.0",
+    "playwright": "^1.50.0"
+  },
+  "overrides": {
+    "undici": "^7.28.0"
+  }
+}

@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/runs/
+data/logs/
+*.log
+
+# Regenerierbare Daten-Artefakte (Crawl-/Auswertungs-Exporte)
+*.csv
+
+# Review-Reports + Snapshots (regenerierbar)
+REVIEW_*.md
+data/review-snapshots/
