@@ -1,5 +1,12 @@
 node_modules/
-dist/
+# dist/ = Build-Output (dist.db, .exe, unpacked) ignorieren — aber die Publish-/Viewer-
+# QUELLEN darin versionieren. dist/* (nicht dist/) — sonst steigt git nicht ins Verzeichnis
+# und die !-Ausnahmen wirken nicht.
+dist/*
+!dist/publish.js
+!dist/viewer/
+!dist/README.md
+dist/dist.db
 .env
 data/*.db
 data/*.db-wal
