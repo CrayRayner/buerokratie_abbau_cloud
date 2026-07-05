@@ -35,6 +35,12 @@ Hinweis: Eine schon vorhandene `dist/web/.htaccess` wird beim erneuten Bauen
 **absichtlich nicht ueberschrieben** (dein eingetragener Pfad bleibt erhalten).
 Willst du sie bewusst frisch aus dem Template haben: erst loeschen, dann bauen.
 
+> **WICHTIG — dist.db gehoert NICHT auf den Server!** Die Web-Variante nutzt
+> `data.json` (liegt schon in `dist/web/`) — dieselben Daten, nur als Datei, die
+> der Browser direkt laden kann. Die `dist.db` (SQLite) braucht NUR die
+> Electron-Desktop-App. Merkregel: **Web = data.json, Desktop = dist.db** —
+> beide entstehen aus demselben publish.js-Lauf und sind immer synchron.
+
 ## Schritt 2 — Login-Benutzer anlegen
 
 ```
@@ -90,10 +96,16 @@ Apache braucht in der `.htaccess` den **absoluten Serverpfad** zur `.htpasswd`
 > Ordner einrichten — der Hoster setzt .htaccess/.htpasswd selbst korrekt.
 > Dann Schritt 2 + 4 komplett ueberspringen (Benutzer legst du im Menue an).
 
-## Schritt 5 — Testen
+## Schritt 5 — Dashboard aufrufen
 
-`https://toryn-gent.net/buerokratie/` aufrufen (https! siehe unten) ->
+Einfach die **Ordner-URL** aufrufen (https!), z. B.:
+```
+https://www.toryn-gent.net/Buerokratieabbau/web/
+```
+Der Server liefert bei einer Ordner-URL automatisch die `index.html` aus
+(Konvention "DirectoryIndex") — es gibt keine extra Datei aufzurufen.
 Login-Popup -> Benutzer/Passwort aus Schritt 2 -> Dashboard erscheint.
+Der CSV-Knopf oben rechts laedt die `export.csv`.
 
 ---
 
