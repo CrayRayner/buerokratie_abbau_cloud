@@ -1,54 +1,123 @@
-# Web-Viewer hochladen (toryn-gent.net) — Schritt für Schritt
+# Web-Viewer hochladen — Schritt fuer Schritt (idiotensicher)
 
 Der Ordner `dist/web/` ist die fertige Website: statisches Frontend + `data.json`.
-Kein Server-Code, kein Gesetzestext, kein `classify.js`. Läuft auf PHP-Hosting.
+Kein Server-Code, kein Gesetzestext, kein `classify.js`. Laeuft auf normalem PHP-Hosting.
 
-## 1. Passwörter erzeugen (lokal, NICHT im Web)
+> **REGEL 0 — Wo Befehle eingeben:** ALLE `node ...`-Befehle laufen aus dem
+> **Repo-Hauptordner** (da wo `package.json` liegt), NICHT aus `dist/`.
+> Also zuerst immer:
+> ```
+> cd M:\buerokratie_abbau_cloud        (oder: cd "M:\Buerokratie abbau")
+> ```
+> Wenn du `Cannot find module ...\dist\dist\publish.js` siehst (dist DOPPELT im
+> Pfad), stehst du im falschen Ordner — eine Ebene hoch (`cd ..`).
+>
+> **REGEL 1 — Platzhalter:** Zeichen wie `…`, `<name>` oder `[optional]` in
+> Anleitungen NIE woertlich mitkopieren. Sie bedeuten "hier eigenen Wert einsetzen
+> oder weglassen".
 
-```bash
-node dist/gen-htpasswd.js kunde1 kunde2 ...
+---
+
+## Schritt 1 — Bundle bauen
+
+```
+cd M:\buerokratie_abbau_cloud
+node dist/publish.js data/buerokratie.db "Datenstand Juli 2026" --web
 ```
 
-Das Skript fragt für jeden Benutzer ein Passwort ab und schreibt `dist/web/.htpasswd`
-mit **gehashten** Passwörtern (Klartext wird nie gespeichert). Merke dir die Passwörter
-sicher (Passwortmanager) — sie stehen nirgends im Klartext.
+(Im Haupt-Repo heisst die Quelle `data/buerokratie.final.db`. Ohne Argumente geht es
+auch — dann findet publish.js die DB automatisch und nimmt das heutige Datum.)
 
-> Jeder Benutzer bekommt eine eigene Zeile/ein eigenes Passwort. Neue Benutzer später:
-> `node dist/gen-htpasswd.js --add kunde3` (hängt an, ohne die anderen zu überschreiben).
+Ergebnis: `dist/web/` mit index.html, app.js, style.css, vendor/, data.json,
+export.csv, .htaccess, SETUP.md.
 
-## 2. Absoluten Pfad zur .htpasswd eintragen
+Hinweis: Eine schon vorhandene `dist/web/.htaccess` wird beim erneuten Bauen
+**absichtlich nicht ueberschrieben** (dein eingetragener Pfad bleibt erhalten).
+Willst du sie bewusst frisch aus dem Template haben: erst loeschen, dann bauen.
 
-Apache braucht in `.htaccess` den **absoluten Serverpfad** zur `.htpasswd`. So findest du ihn:
+## Schritt 2 — Login-Benutzer anlegen
 
-1. Lege kurz eine Datei `pfad.php` in denselben Upload-Ordner mit dem Inhalt:
+```
+node dist/gen-htpasswd.js meinname
+```
+
+- Du waehlst nur den **Benutzernamen**; das **Passwort wird erzeugt** und EINMALIG
+  angezeigt -> sofort in den Passwortmanager. Es wird nirgends im Klartext gespeichert.
+- Weitere Benutzer spaeter: `node dist/gen-htpasswd.js --add zweitername`
+- Die Datei `dist/web/.htpasswd` enthaelt nur Hashes und darf hochgeladen werden.
+
+## Schritt 3 — Hochladen per SFTP
+
+Den **gesamten Inhalt** von `dist/web/` in einen Ordner der Domain laden,
+z. B. `toryn-gent.net/buerokratie/`.
+
+> **Stolperfalle versteckte Dateien:** `.htaccess` und `.htpasswd` beginnen mit
+> einem Punkt = auf Unix-Servern "versteckt". Viele FTP-Programme blenden sie aus!
+> - FileZilla: Menue **Server -> "Anzeige versteckter Dateien erzwingen"**, dann F5
+> - WinSCP: **Strg+Alt+H** (bzw. Einstellungen -> Oberflaeche -> versteckte Dateien)
+> Nicht sichtbar heisst NICHT nicht vorhanden — erst einblenden, dann urteilen.
+
+## Schritt 4 — .htpasswd-Pfad eintragen (der fummelige Schritt)
+
+Apache braucht in der `.htaccess` den **absoluten Serverpfad** zur `.htpasswd`
+(Zeile `AuthUserFile`). Den kennt nur der Server selbst — so findest du ihn:
+
+> **Henne-Ei-Problem vorab:** Die .htaccess schuetzt ALLE Dateien im Ordner — auch
+> deine Pfad-Helferdatei. Und einloggen geht noch nicht, weil AuthUserFile ja noch
+> auf den Platzhalter zeigt (JEDER Login schlaegt fehl, egal was du eintippst).
+> Deshalb den Schutz kurz ausschalten:
+
+1. In der hochgeladenen `.htaccess` (per SFTP bearbeiten) die vier Auth-Zeilen mit
+   `#` auskommentieren:
+   ```
+   # AuthType Basic
+   # AuthName "Buerokratieabbau Bayern - bitte anmelden"
+   # AuthUserFile /HIER/ABSOLUTEN/PFAD/EINTRAGEN/.htpasswd
+   # Require valid-user
+   ```
+2. Eine Datei `pfad.php` mit genau diesem Inhalt in den Ordner hochladen:
    ```php
    <?php echo __DIR__ . '/.htpasswd'; ?>
    ```
-2. Rufe sie einmal im Browser auf (`https://toryn-gent.net/<ordner>/pfad.php`) —
-   sie zeigt den kompletten Pfad, z. B. `/kunden/homepages/xx/dxxxx/htdocs/<ordner>/.htpasswd`.
-3. Diesen Pfad in `.htaccess` bei `AuthUserFile` eintragen.
-4. **`pfad.php` danach wieder löschen.**
+3. Im Browser aufrufen — **mit https://** :
+   `https://toryn-gent.net/buerokratie/pfad.php`
+   -> zeigt den kompletten Pfad, z. B. `/homepages/12/d1234567/htdocs/buerokratie/.htpasswd`
+4. Diesen Pfad in der `.htaccess` bei `AuthUserFile` eintragen und die vier
+   `#` wieder entfernen (Schutz wieder AN).
+5. **`pfad.php` auf dem Server LOESCHEN** (verraet sonst die Serverstruktur).
 
-> Alternativ bietet IONOS im Kundenmenü „Verzeichnisschutz" an — das setzt `.htaccess`
-> und `.htpasswd` mit korrektem Pfad automatisch. Dann brauchst du Schritt 2 nicht.
+> Alternative ohne Gefummel: IONOS-Kundenmenue -> "Verzeichnisschutz" fuer den
+> Ordner einrichten — der Hoster setzt .htaccess/.htpasswd selbst korrekt.
+> Dann Schritt 2 + 4 komplett ueberspringen (Benutzer legst du im Menue an).
 
-## 3. Per SFTP hochladen
+## Schritt 5 — Testen
 
-Lade den **gesamten Inhalt** von `dist/web/` in einen Ordner deiner Domain, z. B.
-`toryn-gent.net/buerokratie/`. Wichtig: die **versteckten** Dateien `.htaccess` und
-`.htpasswd` müssen mit hoch (im SFTP-Client „versteckte Dateien anzeigen" aktivieren).
+`https://toryn-gent.net/buerokratie/` aufrufen (https! siehe unten) ->
+Login-Popup -> Benutzer/Passwort aus Schritt 2 -> Dashboard erscheint.
 
-## 4. Testen
+---
 
-`https://toryn-gent.net/buerokratie/` aufrufen → Browser fragt nach Login → nach
-korrekter Eingabe erscheint das Dashboard.
+## Troubleshooting — Fehlerbild -> Ursache -> Loesung
 
-## Sicherheits-Checkliste (ist bereits vorbereitet)
+| Fehlerbild | Ursache | Loesung |
+|---|---|---|
+| `Cannot find module ...\dist\dist\publish.js` (dist doppelt) | Befehl aus `dist/` heraus gestartet | `cd ..` — Befehle laufen vom Repo-Hauptordner |
+| `Quelle nicht gefunden: …` | Platzhalter `…` woertlich mitkopiert | Platzhalter ersetzen oder weglassen |
+| Login-Popup schon bei `pfad.php`, kein Passwort funktioniert | Henne-Ei: AuthUserFile zeigt noch auf Platzhalter | Schritt 4: Auth-Zeilen temporaer auskommentieren |
+| `.htaccess`/`.htpasswd` "fehlen" im FTP-Programm | Versteckte Dateien (Punkt-Prefix) ausgeblendet | FileZilla: Server-Menue "versteckte Dateien erzwingen"; WinSCP: Strg+Alt+H |
+| Zeichensalat im Login-Popup oder in `.htaccess` | Umlaute — HTTP-Header koennen nur ASCII/Latin-1 | Die gelieferte `.htaccess` ist absichtlich komplett ASCII; keine Umlaute einfuegen |
+| "Nicht sicher" in der Adressleiste | Seite ueber `http://` aufgerufen | Immer `https://` benutzen; NIE Login-Daten auf einer "Nicht sicher"-Seite eingeben |
+| Nach Login-Eingabe Fehler 500 | `AuthUserFile`-Pfad falsch/Tippfehler | Pfad aus `pfad.php` exakt uebernehmen (Schritt 4) |
+| Seite laedt OHNE Login-Abfrage | `.htaccess` nicht mit hochgeladen (versteckte Datei!) oder Auth noch auskommentiert | Upload pruefen (versteckte Dateien einblenden), `#` vor den Auth-Zeilen entfernen |
+| Dashboard leer / "Fehler beim Laden" | `data.json` fehlt oder Upload unvollstaendig | Kompletten Inhalt von `dist/web/` erneut hochladen |
 
-- [x] Passwörter nur **gehasht** in `.htpasswd` (nie Klartext)
+## Sicherheits-Checkliste
+
+- [x] Passwoerter nur **gehasht** in `.htpasswd` (nie Klartext)
 - [x] `.htaccess`/`.htpasswd`/`*.md` werden **nicht ausgeliefert** (Regel in `.htaccess`)
-- [x] **HTTPS erzwungen** (Login-Daten nie über http)
+- [x] **HTTPS erzwungen** (Redirect in `.htaccess`)
 - [x] Sicherheits-Header (CSP, nosniff, Framing) gesetzt
 - [x] Verzeichnis-Listing aus
-- [ ] `pfad.php` nach Gebrauch gelöscht (dein Schritt)
-- [ ] `.htpasswd` **niemals** in git committen (ist per `.gitignore` ausgeschlossen)
+- [ ] `pfad.php` nach Gebrauch geloescht (dein Schritt!)
+- [ ] Login nur ueber `https://` getestet (nie bei "Nicht sicher")
+- [ ] `.htpasswd` ist NICHT in git (per `.gitignore` ausgeschlossen — nicht aendern)
