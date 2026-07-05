@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bürokratieabbau Bayern — Analyse</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">BA</div>
+      <div>
+        <h1>Bürokratieabbau Bayern</h1>
+        <p class="sub">unternehmensrelevante Belastungen &amp; Entlastungspotenzial</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <span class="meta" id="meta-run">—</span>
+      <button class="btn" id="btn-help" title="Was bedeuten die Spalten?">?</button>
+      <a class="btn" id="csv-link" href="/api/export/csv">CSV-Export</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="kpi-grid" id="kpi-grid"></section>
+
+    <section class="chart-grid">
+      <div class="card chart-card">
+        <h3>Reform-Priorität <span class="hint">Umsetzbarkeit × Relevanz</span></h3>
+        <div class="chart-wrap"><canvas id="chart-priority"></canvas></div>
+      </div>
+      <div class="card chart-card">
+        <h3>Rechtsbindung <span class="hint">Landesrecht = frei kürzbar</span></h3>
+        <div class="chart-wrap"><canvas id="chart-legal"></canvas></div>
+      </div>
+      <div class="card chart-card">
+        <h3>Pflichttypen</h3>
+        <div class="chart-wrap"><canvas id="chart-category"></canvas></div>
+      </div>
+      <div class="card chart-card">
+        <h3>Unternehmensrelevanz</h3>
+        <div class="chart-wrap"><canvas id="chart-relevance"></canvas></div>
+      </div>
+      <div class="card chart-card">
+        <h3>Adressat <span class="hint">wer trägt die Pflicht?</span></h3>
+        <div class="chart-wrap"><canvas id="chart-adressat"></canvas></div>
+      </div>
+    </section>
+
+    <section class="card table-card">
+      <div class="filters">
+        <input type="search" id="f-search" placeholder="Suche Gesetz / Belegstelle…" autocomplete="off">
+        <select id="f-priority"><option value="">Alle Prioritäten</option></select>
+        <select id="f-legal"><option value="">Alle Rechtsbindungen</option></select>
+        <select id="f-category"><option value="">Alle Pflichttypen</option></select>
+        <select id="f-adressat"><option value="">Alle Adressaten</option></select>
+        <label class="chk"><input type="checkbox" id="f-review"> nur „Prüfung nötig"</label>
+        <label class="chk"><input type="checkbox" id="f-sc"> nur Zweitcheck-Bedenken</label>
+        <label class="chk"><input type="checkbox" id="f-group"> nach Gesetz gruppieren</label>
+        <span class="result-count" id="result-count"></span>
+      </div>
+      <div class="table-scroll">
+        <table id="hits-table">
+          <thead>
+            <tr>
+              <th class="sortable" data-sort="title">Gesetz</th>
+              <th class="sortable" data-sort="priority">Prio</th>
+              <th class="sortable" data-sort="category">Pflichttyp</th>
+              <th class="sortable" data-sort="legal">Rechtsbindung</th>
+              <th class="sortable" data-sort="confidence">Votes</th>
+              <th>Prüfung</th>
+              <th>Belegstelle / Vorschlag</th>
+            </tr>
+          </thead>
+          <tbody id="hits-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <div id="empty" class="empty hidden">
+      <p>Keine Daten in dieser Lieferung.</p>
+      <p class="sub">Bitte wenden Sie sich an den Anbieter, falls das Dashboard leer bleibt.</p>
+    </div>
+  </main>
+
+  <!-- Hilfe/Legende — für Nicht-Techniker, per ?-Button -->
+  <div id="help-overlay" class="help-overlay hidden">
+    <div class="help-box">
+      <button class="help-close" id="help-close" title="Schließen">×</button>
+      <h2>So lesen Sie das Dashboard</h2>
+      <dl class="help-dl">
+        <dt>Reform-Priorität A / B / C</dt>
+        <dd><b>A</b> = größter Hebel (rechtlich frei kürzbar <i>und</i> hohe Belastung), <b>B</b> = mittel, <b>C</b> = gering. Ergibt sich aus Umsetzbarkeit × Unternehmensrelevanz.</dd>
+        <dt>Rechtsbindung</dt>
+        <dd><b>Landesrecht</b> = Bayern kann es allein ändern (frei kürzbar). <b>Bund</b>/<b>EU</b> = höhere Ebene nötig, geringerer Spielraum.</dd>
+        <dt>Adressat</dt>
+        <dd>Wer die Pflicht trägt — Gewerbe, Freie Berufe, Agrarbetrieb, Verbraucher oder Behörde.</dd>
+        <dt>Prüfung / Zweitcheck</dt>
+        <dd>„Prüfung nötig" markiert unsichere Fälle. Der Zweitcheck ist ein unabhängiges Kontrollurteil je Vorschlag: <b>✓ bestätigt</b>, <b>‼ Bedenken</b>, <b>✗ infrage gestellt</b>. Der Prioritätsbuchstabe bleibt dabei unverändert — der Zweitcheck ist eine Zusatz-Einschätzung, keine automatische Abwertung.</dd>
+        <dt>Belegstelle</dt>
+        <dd>Die konkrete Norm (z. B. „§ 5 Abs. 2") mit dem wörtlichen Textbeleg — jeder Vorschlag ist am Gesetzestext verankert.</dd>
+        <dt>CSV-Export</dt>
+        <dd>Lädt alle bewerteten Belegstellen als Tabelle für Excel herunter.</dd>
+      </dl>
+      <p class="help-foot" id="help-datastand">—</p>
+    </div>
+  </div>
+
+  <script src="vendor/chart.umd.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

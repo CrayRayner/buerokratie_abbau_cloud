@@ -14,6 +14,7 @@
  *   node dist/publish.js                                   (Quelle: data/buerokratie.final.db)
  *   node dist/publish.js pfad/zur/quelle.db                (andere Quelle)
  *   node dist/publish.js quelle.db "Datenstand Juli 2026"  (+ Anzeige-Datenstand)
+ *   node dist/publish.js ... --web                          (zusaetzlich statisches dist/web/)
  */
 const path = require('path');
 const fs = require('fs');
@@ -22,6 +23,10 @@ const {
   classifyAddressee, legalShort, legalDisplay, reformPriority,
   isGrounded, buildNormMap, resolveNorm, endstatus, parseHits
 } = require('../classify');
+
+// Flags (--web) von den Positions-Argumenten trennen.
+const positional = process.argv.slice(2).filter(a => !a.startsWith('--'));
+const WEB = process.argv.includes('--web');
 
 // Default-Quelle: nimm die vorhandene DB (lokales Repo: buerokratie.final.db,
 // Cloud-Repo: buerokratie.db) — so laeuft dieselbe publish.js in beiden Repos ohne Argument.
@@ -32,8 +37,8 @@ function defaultSrc() {
   }
   return path.join(__dirname, '..', 'data', 'buerokratie.final.db');
 }
-const srcPath = process.argv[2] || defaultSrc();
-const dataDate = process.argv[3] || new Date().toISOString().slice(0, 10);
+const srcPath = positional[0] || defaultSrc();
+const dataDate = positional[1] || new Date().toISOString().slice(0, 10);
 const outPath = path.join(__dirname, 'dist.db');
 
 if (!fs.existsSync(srcPath)) { console.error('Quelle nicht gefunden: ' + srcPath); process.exit(1); }
@@ -149,7 +154,13 @@ const categories = Object.entries(charts.categories).map(([name, count]) => ({ n
 const chartsOut = { ...charts, categories };
 
 // --- dist.db schreiben (frisch) ---
-try { fs.unlinkSync(outPath); } catch { /* nicht vorhanden */ }
+try { fs.unlinkSync(outPath); }
+catch (e) {
+  if (e.code !== 'ENOENT') {
+    console.error('dist.db kann nicht ueberschrieben werden — laeuft noch ein Viewer, der sie offen haelt?\n  ' + e.message);
+    process.exit(1);
+  }
+}
 const dist = new Database(outPath);
 // Rollback-Journal statt WAL: dist.db bleibt EINE Datei (keine -wal/-shm Nebendateien),
 // wichtig fuers Ausliefern. Der Viewer oeffnet sie ohnehin nur read-only.
@@ -202,3 +213,63 @@ console.log('  Dokumente: ' + rows.length + ' | Treffer: ' + hitRows.length +
   ' | A/B/C(doc): ' + kpi.prioA + '/' + kpi.prioB + '/' + kpi.prioC +
   ' | nicht bewertet: ' + kpi.notRated + ' | ungrounded: ' + kpi.ungrounded);
 console.log('  Volltext & raw_analyses NICHT enthalten. Datenstand: ' + dataDate);
+
+// --- Optional: statisches Web-Bundle (dist/web/) fuer PHP-Hosting ohne Node ---
+if (WEB) writeWebBundle();
+
+function writeWebBundle() {
+  const webDir = path.join(__dirname, 'web');
+  const viewerPub = path.join(__dirname, 'viewer', 'public');
+  fs.mkdirSync(path.join(webDir, 'vendor'), { recursive: true });
+
+  // hitRows (DB-Form) -> API-Form, identisch zu dist/viewer/server/routes/api.js /data.
+  const apiHits = hitRows.map(h => ({
+    docId: h.doc_id, title: h.title, normType: h.norm_type, url: h.url,
+    priority: h.priority, confidence: h.confidence, unanimous: !!h.unanimous,
+    needsReview: !!h.needs_review, legal: h.legal, legalFull: h.legal_full,
+    category: h.category, adressat: h.adressat, normstelle: h.normstelle,
+    beleg: h.beleg, burden: h.burden, proposed: h.proposed, risks: h.risks,
+    relevance: h.relevance, relief: h.relief, grounded: !!h.grounded,
+    secondCheck: h.second_check ? JSON.parse(h.second_check) : null, endstatus: h.endstatus
+  }));
+  fs.writeFileSync(path.join(webDir, 'data.json'),
+    JSON.stringify({ kpi, charts: chartsOut, hits: apiHits, dataDate }), 'utf8');
+
+  // export.csv (gleiche 19 Spalten wie der Viewer-CSV-Export)
+  const esc = v => { const s = String(v == null ? '' : v); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const header = ['Gesetz', 'Normtyp', 'Normstelle', 'Belegstelle', 'Pflichttyp', 'Adressat', 'Belegtext',
+    'Aenderungsvorschlag', 'Risiko', 'Prioritaet', 'ensemble_votes', 'beleg_sicherheit',
+    'rechtlich_gebunden', 'human_review', 'Zweitcheck', 'Zweitcheck_Begruendung', 'Endstatus', 'URL', 'Modell'];
+  const csv = [header.join(';')];
+  for (const h of hitRows.filter(x => ['A', 'B', 'C'].includes(x.priority))) {
+    let sc = null; try { sc = h.second_check ? JSON.parse(h.second_check) : null; } catch { /* leer */ }
+    csv.push([h.title, h.norm_type, h.normstelle, h.beleg, h.category, h.adressat, h.burden,
+      h.proposed, h.risks, h.priority, h.confidence, h.grounded ? 'hoch' : 'niedrig', h.legal_display,
+      h.needs_review ? 'JA' : 'nein', sc ? sc.empfehlung || '' : '', sc ? sc.begruendung || '' : '',
+      h.endstatus, h.url, h.model].map(esc).join(';'));
+  }
+  fs.writeFileSync(path.join(webDir, 'export.csv'), '﻿' + csv.join('\n'), 'utf8');
+
+  // Frontend uebernehmen (app.js/style.css/chart.js unveraendert; index.html angepasst)
+  fs.copyFileSync(path.join(viewerPub, 'app.js'), path.join(webDir, 'app.js'));
+  fs.copyFileSync(path.join(viewerPub, 'style.css'), path.join(webDir, 'style.css'));
+  fs.copyFileSync(path.join(viewerPub, 'vendor', 'chart.umd.min.js'), path.join(webDir, 'vendor', 'chart.umd.min.js'));
+
+  let html = fs.readFileSync(path.join(viewerPub, 'index.html'), 'utf8');
+  // statische Datenquelle setzen + CSV-Link auf die vorgebackene Datei
+  html = html.replace('<script src="vendor/chart.umd.min.js"></script>',
+    '<script>window.VIEWER_CFG = { data: "data.json" };</script>\n  <script src="vendor/chart.umd.min.js"></script>');
+  html = html.replace('id="csv-link" href="/api/export/csv"', 'id="csv-link" href="export.csv"');
+  fs.writeFileSync(path.join(webDir, 'index.html'), html, 'utf8');
+
+  // Schutz-Template + Anleitung (falls noch nicht vorhanden — .htpasswd NICHT ueberschreiben)
+  const tpl = path.join(__dirname, 'web-template');
+  fs.copyFileSync(path.join(tpl, '.htaccess'), path.join(webDir, '.htaccess'));
+  fs.copyFileSync(path.join(tpl, 'SETUP.md'), path.join(webDir, 'SETUP.md'));
+
+  const hasPw = fs.existsSync(path.join(webDir, '.htpasswd'));
+  console.log('\nWeb-Bundle geschrieben -> ' + webDir);
+  console.log('  index.html, app.js, style.css, vendor/chart.umd.min.js, data.json, export.csv, .htaccess, SETUP.md');
+  console.log('  .htpasswd: ' + (hasPw ? 'vorhanden (behalten)' : 'FEHLT -> node dist/gen-htpasswd.js <benutzer>'));
+  console.log('  Naechste Schritte: SETUP.md lesen (Login + Pfad + Upload).');
+}

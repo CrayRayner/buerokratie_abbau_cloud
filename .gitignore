@@ -4,9 +4,16 @@ node_modules/
 # und die !-Ausnahmen wirken nicht.
 dist/*
 !dist/publish.js
+!dist/gen-htpasswd.js
 !dist/viewer/
+!dist/web-template/
 !dist/README.md
 dist/dist.db
+# Viewer: gepackte .db + electron-builder-Output nicht versionieren
+dist/viewer/dist/
+dist/viewer/dist.db
+# Web-Bundle = generierter Output MIT Secrets (.htpasswd) + Daten (data.json) -> NIE committen
+dist/web/
 .env
 data/*.db
 data/*.db-wal

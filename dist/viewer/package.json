@@ -1,0 +1,51 @@
+{
+  "name": "buerokratie-viewer",
+  "version": "1.0.0",
+  "description": "Bürokratieabbau Bayern — Auswertungs-Viewer (read-only)",
+  "author": "Toryn Gent",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "electron": "electron .",
+    "dist": "electron-builder",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.0.0",
+    "express": "^4.21.0"
+  },
+  "devDependencies": {
+    "electron": "^29.0.0",
+    "electron-builder": "^24.0.0"
+  },
+  "build": {
+    "appId": "net.toryn-gent.buerokratie-viewer",
+    "productName": "Buerokratieabbau Bayern",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**",
+      "server/**",
+      "public/**",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "../dist.db", "to": "dist.db" }
+    ],
+    "asarUnpack": [
+      "**/*.node"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "Buerokratieabbau Bayern"
+    }
+  }
+}

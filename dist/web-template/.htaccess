@@ -1,0 +1,35 @@
+# === Bürokratieabbau Bayern — Zugriffsschutz + Härtung ===
+# Wird von publish.js --web nach dist/web/ kopiert. Vor dem Upload EINE Zeile anpassen:
+# den absoluten Pfad zur .htpasswd (siehe SETUP.md, Schritt „AuthUserFile").
+
+# --- 1. HTTPS erzwingen (Login-Daten nie über http senden) ---
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{HTTPS} off
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+</IfModule>
+
+# --- 2. Login (HTTP Basic Auth; Passwörter gehasht in .htpasswd) ---
+AuthType Basic
+AuthName "Bürokratieabbau Bayern — bitte anmelden"
+# WICHTIG: absoluten Serverpfad eintragen (SETUP.md erklärt, wie du ihn findest):
+AuthUserFile /HIER/ABSOLUTEN/PFAD/EINTRAGEN/.htpasswd
+Require valid-user
+
+# --- 3. Sensible Dateien NIE ausliefern (zusätzlich zum Apache-Default) ---
+<FilesMatch "(^\.ht|\.md$)">
+  Require all denied
+</FilesMatch>
+
+# --- 4. Sicherheits-Header ---
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set Referrer-Policy "no-referrer"
+  Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
+  # Nur eigene Skripte + der Chart.js-Vendor lokal; keine Fremd-Einbindung.
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'self'"
+</IfModule>
+
+# --- 5. Verzeichnis-Listing aus ---
+Options -Indexes
