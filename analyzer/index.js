@@ -1,12 +1,14 @@
 const { initSchema, getDb, setPipelineRunning, setPipelineTotal, updatePipelineStatus } = require('../db');
 const { buildPrompt } = require('./prompt');
-const { analyzeWithLMStudio } = require('./client');
+const { analyzeWithLLM, analyzeModelName, PROVIDER } = require('./client');
 const { generateReport } = require('../review-report');
 const { isGrounded } = require('../classify');
 const config = require('../config.json');
 
 async function analyze() {
   console.log('=== ANALYZE PHASE (Ensemble: ' + (config.ensembleRuns || 1) + ' runs, temp=' + (config.ensembleTemperature || 0.1) + ') ===');
+  console.log('[ANALYZE] Provider: ' + PROVIDER + ' — Modell: ' + analyzeModelName()
+    + (PROVIDER === 'openrouter' && config.analyzeReasoningEffort ? ' (reasoning: ' + config.analyzeReasoningEffort + ')' : ''));
   const db = initSchema();
   setPipelineRunning('analyze', true);
 
@@ -53,12 +55,12 @@ async function analyze() {
       const results = [];
       for (let r = 0; r < ensembleRuns; r++) {
         try {
-          const result = await analyzeWithLMStudio(prompt, doc.doc_id + (tag || ''), ensembleTemp);
+          const result = await analyzeWithLLM(prompt, doc.doc_id + (tag || ''), ensembleTemp);
           results.push(result);
           db.prepare(`
             INSERT INTO raw_analyses (doc_id, run_index, temperature, raw_response, model, run_session)
             VALUES (?, ?, ?, ?, ?, ?)
-          `).run(doc.doc_id, runOffset + r, ensembleTemp, JSON.stringify(result), config.model, runSession);
+          `).run(doc.doc_id, runOffset + r, ensembleTemp, JSON.stringify(result), analyzeModelName(), runSession);
           process.stdout.write(`    ${tag ? tag + ' ' : ''}run ${r + 1}/${ensembleRuns}: ${result.hits ? result.hits.length : 0} hits\n`);
         } catch (runErr) {
           console.error(`    ${tag ? tag + ' ' : ''}run ${r + 1}/${ensembleRuns} FAILED:`, runErr.message);
@@ -113,7 +115,7 @@ async function analyze() {
             aggregated.risks,
             aggregated.legal_restrictions,
             JSON.stringify(rawResults),
-            config.model,
+            analyzeModelName(),
             wasSummarized ? 1 : 0,
             aggregated.confidence,
             aggregated.needsReview ? 1 : 0,
@@ -132,7 +134,7 @@ async function analyze() {
             '[]',
             aggregated.legal_restrictions || '',
             JSON.stringify(rawResults),
-            config.model,
+            analyzeModelName(),
             aggregated.confidence,
             aggregated.needsReview ? 1 : 0,
             runSession
@@ -145,7 +147,7 @@ async function analyze() {
         db.prepare(`
           INSERT OR REPLACE INTO analyses (doc_id, description, raw_response, model, run_session, analyzed_at)
           VALUES (?, ?, ?, ?, ?, datetime('now'))
-        `).run(doc.doc_id, `ERROR: ${err.message}`, err.message, config.model, runSession);
+        `).run(doc.doc_id, `ERROR: ${err.message}`, err.message, analyzeModelName(), runSession);
         errors++;
         updatePipelineStatus('analyze', 1);
       }
@@ -444,4 +446,4 @@ if (require.main === module) {
   analyze().catch(console.error);
 }
 
-module.exports = { analyze };
+module.exports = { analyze, splitIntoWindows, mergeChunkAggregates };

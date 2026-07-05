@@ -17,18 +17,8 @@ const config = require('./config.json');
 const { bestHitPriority, parseHits, reformPriority } = require('./classify');
 const { Agent } = require('undici');
 
-// Minimaler, abhängigkeitsfreier .env-Loader (KEY=VALUE, # Kommentare). Überschreibt
-// bereits gesetzte process.env-Werte NICHT (z.B. wenn extern schon gesetzt).
-function loadDotEnv() {
-  const path = require('path').join(__dirname, '.env');
-  let raw;
-  try { raw = require('fs').readFileSync(path, 'utf8'); } catch { return; }
-  for (const line of raw.split('\n')) {
-    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/i);
-    if (!m || line.trim().startsWith('#')) continue;
-    if (process.env[m[1]] === undefined) process.env[m[1]] = m[2].trim();
-  }
-}
+// .env-Loader: gemeinsames Modul (env.js) — auch von analyzer/client.js genutzt.
+const { loadDotEnv } = require('./env');
 loadDotEnv();
 
 const PROVIDER = config.secondCheckProvider || 'openrouter';
