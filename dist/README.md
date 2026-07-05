@@ -57,6 +57,10 @@ node dist/gen-htpasswd.js kunde1 kunde2        # zeigt Klartext EINMALIG -> Pass
 # 3. dist/web/ per SFTP hochladen (inkl. versteckter .htaccess/.htpasswd) -> SETUP.md folgen.
 ```
 
+**Standard-Weg nach jedem weiteren Analyse-Lauf** (Erst-Setup schon erledigt):
+`publish.js --web` laufen lassen und NUR `data.json` + `export.csv` hochladen —
+`.htaccess`/`.htpasswd`/Frontend bleiben unangetastet (Details: SETUP.md).
+
 **Login:** Du waehlst den Benutzernamen, `gen-htpasswd.js` erzeugt das Passwort und zeigt es
 EINMALIG an — das ist der Login. `--add <name>` haengt weitere Benutzer an.
 

@@ -109,6 +109,32 @@ Der CSV-Knopf oben rechts laedt die `export.csv`.
 
 ---
 
+## Standard-Workflow: neue Daten veroeffentlichen (nach jedem Analyse-Lauf)
+
+Das Erst-Setup (Schritte 1-5) machst du EINMAL. Danach ist der Standard-Weg
+nach jedem abgeschlossenen Lauf (analyze + second-check durch):
+
+```
+cd M:\buerokratie_abbau_cloud
+node dist/publish.js data/buerokratie.db "Datenstand <Monat Jahr>" --web
+```
+
+Dann per SFTP NUR diese zwei Dateien in den Web-Ordner hochladen (ueberschreiben):
+
+```
+dist/web/data.json      <- die neuen Ergebnisse
+dist/web/export.csv     <- der neue CSV-Download
+```
+
+**Alles andere bleibt liegen:** `.htaccess` (dein AuthUserFile-Pfad!), `.htpasswd`
+(alle Logins), index.html/app.js/style.css/vendor (aendern sich nur bei
+Code-Updates am Viewer). Browser-Reload -> neue Zahlen da. Fertig.
+
+> Derselbe publish-Lauf erzeugt auch die frische `dist/dist.db` fuer die
+> Electron-Desktop-App — Web und Desktop bleiben automatisch synchron.
+
+---
+
 ## Troubleshooting — Fehlerbild -> Ursache -> Loesung
 
 | Fehlerbild | Ursache | Loesung |
