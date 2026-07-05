@@ -119,16 +119,19 @@ cd M:\buerokratie_abbau_cloud
 node dist/publish.js data/buerokratie.db "Datenstand <Monat Jahr>" --web
 ```
 
-Dann per SFTP NUR diese zwei Dateien in den Web-Ordner hochladen (ueberschreiben):
+Dann per SFTP diese VIER Dateien in den Web-Ordner hochladen (ueberschreiben):
 
 ```
 dist/web/data.json      <- die neuen Ergebnisse
 dist/web/export.csv     <- der neue CSV-Download
+dist/web/index.html     <- traegt die neue Build-Id (?v=...) fuer den Browser-Cache
+dist/web/cfg.js         <- dito (winzig; versioniert data.json)
 ```
 
 **Alles andere bleibt liegen:** `.htaccess` (dein AuthUserFile-Pfad!), `.htpasswd`
-(alle Logins), index.html/app.js/style.css/vendor (aendern sich nur bei
-Code-Updates am Viewer). Browser-Reload -> neue Zahlen da. Fertig.
+(alle Logins), app.js/style.css/vendor (aendern sich nur bei Code-Updates am
+Viewer — dann auch diese mit hochladen). Browser-Reload -> neue Zahlen da, ohne
+dass jemand Strg+F5 druecken muss (Cache-Busting ueber die Build-Id).
 
 > Derselbe publish-Lauf erzeugt auch die frische `dist/dist.db` fuer die
 > Electron-Desktop-App — Web und Desktop bleiben automatisch synchron.
@@ -148,6 +151,8 @@ Code-Updates am Viewer). Browser-Reload -> neue Zahlen da. Fertig.
 | Nach Login-Eingabe Fehler 500 | `AuthUserFile`-Pfad falsch/Tippfehler | Pfad aus `pfad.php` exakt uebernehmen (Schritt 4) |
 | Seite laedt OHNE Login-Abfrage | `.htaccess` nicht mit hochgeladen (versteckte Datei!) oder Auth noch auskommentiert | Upload pruefen (versteckte Dateien einblenden), `#` vor den Auth-Zeilen entfernen |
 | Dashboard leer / "Fehler beim Laden" | `data.json` fehlt oder Upload unvollstaendig | Kompletten Inhalt von `dist/web/` erneut hochladen |
+| **500 Internal Server Error auf ALLEN Dateien, sofort** | Syntaxfehler in der `.htaccess` (Zeilenumbruch mitten in langer Zeile, typografische Anfuehrungszeichen, `Header` ausserhalb `<IfModule>`) | Diagnose: `.htaccess` auf dem Server in `htaccess.aus` umbenennen -> laedt die Seite, war sie es. Dann die GANZE geprueft Datei aus `dist/web/` neu hochladen und nur den AuthUserFile-Pfad wieder eintragen. NIE lange Zeilen im SFTP-Editor zusammenbauen |
+| Nach einem Update fehlen neue Funktionen / Spalten verrutscht | Browser zeigt gecachte alte app.js/style.css zur neuen index.html | Einmal Strg+F5. Dauerhaft geloest: publish.js haengt `?v=<Build>` an alle Assets — bei Updates immer die frisch gebaute index.html MIT hochladen |
 
 ## Sicherheits-Checkliste
 

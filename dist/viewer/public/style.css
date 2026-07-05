@@ -98,7 +98,9 @@ code {
 .run-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
 /* ---------- Layout ---------- */
-main { max-width: 1320px; margin: 0 auto; padding: 24px 26px 64px; }
+/* Fluid: volle Bildschirmbreite nutzen — KPI/Chart-Grids sind auto-fit und
+   vertragen das; die Tabelle braucht den Platz fuer die Belegstellen-Spalte. */
+main { max-width: none; margin: 0 auto; padding: 24px 26px 64px; }
 
 .card {
   background: var(--surface);
@@ -187,7 +189,7 @@ tbody tr.row:hover { background: var(--surface-2); }
 .cell-title { font-weight: 500; max-width: 280px; }
 .cell-title small { display: block; color: var(--ink-faint); font-size: 11px; font-weight: 400; }
 tbody td small { display: block; color: var(--ink-faint); font-size: 11px; font-weight: 400; margin-top: 2px; }
-.cell-beleg { max-width: 420px; color: var(--ink-soft); }
+.cell-beleg { max-width: 640px; min-width: 280px; color: var(--ink-soft); }
 .cell-beleg .beleg-text { font-size: 12.5px; }
 .cell-beleg .prop { color: var(--accent-ink); font-size: 12.5px; margin-top: 3px; }
 

@@ -258,11 +258,23 @@ function writeWebBundle() {
   // Konfig als EIGENE Datei statt inline: die CSP der .htaccess (script-src 'self')
   // blockt Inline-Scripts — eine inline gesetzte VIEWER_CFG wuerde am Server still
   // verworfen und das Dashboard bliebe leer ("Fehler beim Laden").
-  fs.writeFileSync(path.join(webDir, 'cfg.js'), 'window.VIEWER_CFG = { data: "data.json" };\n', 'utf8');
+  // Build-Id fuer Cache-Busting — auch data.json wird darueber versioniert,
+  // sonst zeigt der Browser nach einem Daten-Update alte Zahlen aus dem Cache.
+  const v = Date.now().toString(36);
+  fs.writeFileSync(path.join(webDir, 'cfg.js'), `window.VIEWER_CFG = { data: "data.json?v=${v}" };\n`, 'utf8');
   let html = fs.readFileSync(path.join(viewerPub, 'index.html'), 'utf8');
   html = html.replace('<script src="vendor/chart.umd.min.js"></script>',
     '<script src="cfg.js"></script>\n  <script src="vendor/chart.umd.min.js"></script>');
   html = html.replace('id="csv-link" href="/api/export/csv"', 'id="csv-link" href="export.csv"');
+  // Cache-Busting: ?v=<Build-Id> an alle Assets. Browser cachen JS/CSS aggressiv —
+  // ohne das rendert nach einem Update die ALTE app.js gegen die NEUE index.html
+  // (verschobene Spalten, fehlende Features), bis jemand Strg+F5 drueckt.
+  html = html
+    .replace('href="style.css"', `href="style.css?v=${v}"`)
+    .replace('src="cfg.js"', `src="cfg.js?v=${v}"`)
+    .replace('src="app.js"', `src="app.js?v=${v}"`)
+    .replace('src="vendor/chart.umd.min.js"', `src="vendor/chart.umd.min.js?v=${v}"`)
+    .replace('href="export.csv"', `href="export.csv?v=${v}"`);
   fs.writeFileSync(path.join(webDir, 'index.html'), html, 'utf8');
 
   // Schutz-Template + Anleitung. .htaccess NUR anlegen, wenn nicht vorhanden —
