@@ -1,22 +1,25 @@
-# === Bürokratieabbau Bayern — Zugriffsschutz + Härtung ===
+# === Buerokratieabbau Bayern - Zugriffsschutz + Haertung ===
 # Wird von publish.js --web nach dist/web/ kopiert. Vor dem Upload EINE Zeile anpassen:
-# den absoluten Pfad zur .htpasswd (siehe SETUP.md, Schritt „AuthUserFile").
+# den absoluten Pfad zur .htpasswd (siehe SETUP.md, Schritt "AuthUserFile").
+# HINWEIS: Diese Datei bewusst KOMPLETT ASCII (keine Umlaute) - AuthName wird als
+# HTTP-Header uebertragen (ASCII/Latin-1), und SFTP-Editoren zeigen UTF-8-Kommentare
+# sonst je nach Encoding-Einstellung als Zeichensalat.
 
-# --- 1. HTTPS erzwingen (Login-Daten nie über http senden) ---
+# --- 1. HTTPS erzwingen (Login-Daten nie ueber http senden) ---
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteCond %{HTTPS} off
   RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 </IfModule>
 
-# --- 2. Login (HTTP Basic Auth; Passwörter gehasht in .htpasswd) ---
+# --- 2. Login (HTTP Basic Auth; Passwoerter gehasht in .htpasswd) ---
 AuthType Basic
-AuthName "Bürokratieabbau Bayern — bitte anmelden"
-# WICHTIG: absoluten Serverpfad eintragen (SETUP.md erklärt, wie du ihn findest):
+AuthName "Buerokratieabbau Bayern - bitte anmelden"
+# WICHTIG: absoluten Serverpfad eintragen (SETUP.md erklaert, wie du ihn findest):
 AuthUserFile /HIER/ABSOLUTEN/PFAD/EINTRAGEN/.htpasswd
 Require valid-user
 
-# --- 3. Sensible Dateien NIE ausliefern (zusätzlich zum Apache-Default) ---
+# --- 3. Sensible Dateien NIE ausliefern (zusaetzlich zum Apache-Default) ---
 <FilesMatch "(^\.ht|\.md$)">
   Require all denied
 </FilesMatch>

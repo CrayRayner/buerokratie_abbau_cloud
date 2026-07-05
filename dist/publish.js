@@ -262,9 +262,13 @@ function writeWebBundle() {
   html = html.replace('id="csv-link" href="/api/export/csv"', 'id="csv-link" href="export.csv"');
   fs.writeFileSync(path.join(webDir, 'index.html'), html, 'utf8');
 
-  // Schutz-Template + Anleitung (falls noch nicht vorhanden — .htpasswd NICHT ueberschreiben)
+  // Schutz-Template + Anleitung. .htaccess NUR anlegen, wenn nicht vorhanden —
+  // der Nutzer traegt dort seinen AuthUserFile-Serverpfad ein, den ein Re-Bake
+  // sonst stillschweigend auf den Platzhalter zuruecksetzen wuerde.
   const tpl = path.join(__dirname, 'web-template');
-  fs.copyFileSync(path.join(tpl, '.htaccess'), path.join(webDir, '.htaccess'));
+  const htaccess = path.join(webDir, '.htaccess');
+  if (!fs.existsSync(htaccess)) fs.copyFileSync(path.join(tpl, '.htaccess'), htaccess);
+  else console.log('  .htaccess vorhanden -> NICHT ueberschrieben (AuthUserFile-Pfad bleibt erhalten)');
   fs.copyFileSync(path.join(tpl, 'SETUP.md'), path.join(webDir, 'SETUP.md'));
 
   const hasPw = fs.existsSync(path.join(webDir, '.htpasswd'));
