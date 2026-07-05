@@ -28,7 +28,7 @@ node dist/publish.js data/buerokratie.db "Datenstand Juli 2026" --web
 (Im Haupt-Repo heisst die Quelle `data/buerokratie.final.db`. Ohne Argumente geht es
 auch — dann findet publish.js die DB automatisch und nimmt das heutige Datum.)
 
-Ergebnis: `dist/web/` mit index.html, app.js, style.css, vendor/, data.json,
+Ergebnis: `dist/web/` mit index.html, cfg.js, app.js, style.css, vendor/, data.json,
 export.csv, .htaccess, SETUP.md.
 
 Hinweis: Eine schon vorhandene `dist/web/.htaccess` wird beim erneuten Bauen

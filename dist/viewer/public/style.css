@@ -273,3 +273,18 @@ tr.grp-detail td { background: var(--surface-2); padding: 0; }
   margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--rim);
   color: var(--ink-faint); font-size: 12px;
 }
+
+/* Markieren & Auswahl-Export */
+.th-mark { width: 36px; text-align: center; color: var(--accent-ink); }
+.cell-mark { width: 36px; text-align: center; }
+.mark-box, .mark-law {
+  accent-color: var(--accent);
+  width: 15px; height: 15px;
+  cursor: pointer; vertical-align: middle;
+}
+tr.marked { background: var(--accent-soft); }
+tr.marked:hover { background: var(--accent-soft); }
+.hit-list .mark-sub { margin-right: 7px; }
+.mark-count { color: var(--accent-ink); font-weight: 600; }
+.filters .btn { padding: 6px 10px; font-size: 12px; }
+.filters .btn:disabled { opacity: 0.45; cursor: default; }

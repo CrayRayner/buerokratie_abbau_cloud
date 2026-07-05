@@ -58,12 +58,17 @@
         <label class="chk"><input type="checkbox" id="f-review"> nur „Prüfung nötig"</label>
         <label class="chk"><input type="checkbox" id="f-sc"> nur Zweitcheck-Bedenken</label>
         <label class="chk"><input type="checkbox" id="f-group"> nach Gesetz gruppieren</label>
+        <label class="chk"><input type="checkbox" id="f-marked"> nur Markierte</label>
         <span class="result-count" id="result-count"></span>
+        <span class="result-count mark-count" id="mark-count"></span>
+        <button class="btn" id="btn-export-marked" disabled>Markierte als CSV</button>
+        <button class="btn" id="btn-clear-marks" disabled>Markierungen leeren</button>
       </div>
       <div class="table-scroll">
         <table id="hits-table">
           <thead>
             <tr>
+              <th class="th-mark" title="Für Export markieren">✓</th>
               <th class="sortable" data-sort="title">Gesetz</th>
               <th class="sortable" data-sort="priority">Prio</th>
               <th class="sortable" data-sort="category">Pflichttyp</th>
@@ -100,6 +105,8 @@
         <dd>„Prüfung nötig" markiert unsichere Fälle. Der Zweitcheck ist ein unabhängiges Kontrollurteil je Vorschlag: <b>✓ bestätigt</b>, <b>‼ Bedenken</b>, <b>✗ infrage gestellt</b>. Der Prioritätsbuchstabe bleibt dabei unverändert — der Zweitcheck ist eine Zusatz-Einschätzung, keine automatische Abwertung.</dd>
         <dt>Belegstelle</dt>
         <dd>Die konkrete Norm (z. B. „§ 5 Abs. 2") mit dem wörtlichen Textbeleg — jeder Vorschlag ist am Gesetzestext verankert.</dd>
+        <dt>Markieren &amp; Auswahl exportieren</dt>
+        <dd>Häkchen vor einer Belegstelle setzen — oder in der gruppierten Ansicht vor einem Gesetz (markiert alle seine Belegstellen). „Markierte als CSV" lädt genau diese Auswahl herunter. Markierungen bleiben in diesem Browser gespeichert, auch nach dem Schließen.</dd>
         <dt>CSV-Export</dt>
         <dd>Lädt alle bewerteten Belegstellen als Tabelle für Excel herunter.</dd>
       </dl>

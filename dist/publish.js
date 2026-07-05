@@ -255,10 +255,13 @@ function writeWebBundle() {
   fs.copyFileSync(path.join(viewerPub, 'style.css'), path.join(webDir, 'style.css'));
   fs.copyFileSync(path.join(viewerPub, 'vendor', 'chart.umd.min.js'), path.join(webDir, 'vendor', 'chart.umd.min.js'));
 
+  // Konfig als EIGENE Datei statt inline: die CSP der .htaccess (script-src 'self')
+  // blockt Inline-Scripts — eine inline gesetzte VIEWER_CFG wuerde am Server still
+  // verworfen und das Dashboard bliebe leer ("Fehler beim Laden").
+  fs.writeFileSync(path.join(webDir, 'cfg.js'), 'window.VIEWER_CFG = { data: "data.json" };\n', 'utf8');
   let html = fs.readFileSync(path.join(viewerPub, 'index.html'), 'utf8');
-  // statische Datenquelle setzen + CSV-Link auf die vorgebackene Datei
   html = html.replace('<script src="vendor/chart.umd.min.js"></script>',
-    '<script>window.VIEWER_CFG = { data: "data.json" };</script>\n  <script src="vendor/chart.umd.min.js"></script>');
+    '<script src="cfg.js"></script>\n  <script src="vendor/chart.umd.min.js"></script>');
   html = html.replace('id="csv-link" href="/api/export/csv"', 'id="csv-link" href="export.csv"');
   fs.writeFileSync(path.join(webDir, 'index.html'), html, 'utf8');
 

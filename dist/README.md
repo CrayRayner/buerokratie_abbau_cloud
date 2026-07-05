@@ -49,7 +49,7 @@ laedt sie ueber `window.VIEWER_CFG` (in Electron weiterhin `/api/data`, kein zwe
 ```bash
 # 1. Web-Bundle erzeugen (zusaetzlich zur dist.db). Cloud-Repo: Quelle = data/buerokratie.db
 node dist/publish.js data/buerokratie.db "Datenstand Juli 2026" --web
-#    -> dist/web/  (index.html, app.js, style.css, vendor/, data.json, export.csv, .htaccess, SETUP.md)
+#    -> dist/web/  (index.html, cfg.js, app.js, style.css, vendor/, data.json, export.csv, .htaccess, SETUP.md)
 
 # 2. Login-Passwoerter erzeugen (starke Zufallspasswoerter, nur Hashes gespeichert):
 node dist/gen-htpasswd.js kunde1 kunde2        # zeigt Klartext EINMALIG -> Passwortmanager

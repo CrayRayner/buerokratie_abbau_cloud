@@ -44,9 +44,8 @@ AuthUserFile /HIER/ABSOLUTEN/PFAD/EINTRAGEN/.htpasswd
   Header always set X-Frame-Options "SAMEORIGIN"
   Header always set Referrer-Policy "no-referrer"
   Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
-  # Eigene Skripte + Chart.js-Vendor lokal; einzige Fremd-Quelle: Google Fonts
-  # (style.css laedt Oxanium/Space Grotesk per @import — ohne diese Ausnahmen
-  # blockt die CSP die Schriften).
+  # Nur eigene Skripte (Chart.js lokal gevendort). Google Fonts explizit erlaubt —
+  # style.css importiert Oxanium/Space Grotesk von fonts.googleapis.com.
   Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'self'"
 </IfModule>
 

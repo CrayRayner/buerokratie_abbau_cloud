@@ -67,6 +67,52 @@ function endstatusTitle(endstatus) {
   return endstatus ? `title="Endstatus: ${esc(endstatus)}"` : '';
 }
 
+// === Markierungen (localStorage — pro Browser/Gerät, pro Datenstand) ===
+// Kein Server nötig: Auswahl lebt im Browser, Export der Auswahl passiert clientseitig.
+let marks = new Set();
+let marksKey = 'ba_marks';
+function initMarks() {
+  marksKey = 'ba_marks::' + (DATA.dataDate || 'default'); // neuer Datenstand = frische Auswahl
+  try { marks = new Set(JSON.parse(localStorage.getItem(marksKey) || '[]')); }
+  catch { marks = new Set(); }
+  updateMarkUi();
+}
+function saveMarks() {
+  localStorage.setItem(marksKey, JSON.stringify([...marks]));
+  updateMarkUi();
+}
+function setMark(key, on) { if (on) marks.add(key); else marks.delete(key); }
+function updateMarkUi() {
+  $('#mark-count').textContent = marks.size ? marks.size + ' markiert' : '';
+  $('#btn-export-marked').disabled = marks.size === 0;
+  $('#btn-clear-marks').disabled = marks.size === 0;
+}
+
+function exportMarkedCsv() {
+  const rows = DATA.hits.filter(h => marks.has(h._key));
+  if (!rows.length) return;
+  const escC = v => { const s = String(v == null ? '' : v); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const header = ['Gesetz', 'Normtyp', 'Normstelle', 'Belegstelle', 'Pflichttyp', 'Adressat', 'Belegtext',
+    'Aenderungsvorschlag', 'Risiko', 'Prioritaet', 'ensemble_votes', 'beleg_sicherheit',
+    'rechtlich_gebunden', 'human_review', 'Zweitcheck', 'Zweitcheck_Begruendung', 'Endstatus', 'URL'];
+  const lines = [header.join(';')];
+  for (const h of rows) {
+    const sc = h.secondCheck;
+    lines.push([h.title, h.normType, h.normstelle, h.beleg, h.category, h.adressat,
+      h.burden, h.proposed, h.risks, h.priority, h.confidence,
+      h.grounded ? 'hoch' : 'niedrig', h.legalFull, h.needsReview ? 'JA' : 'nein',
+      sc ? sc.empfehlung || '' : '', sc ? sc.begruendung || '' : '',
+      h.endstatus || '', h.url].map(escC).join(';'));
+  }
+  // BOM voran, damit Excel die Umlaute als UTF-8 erkennt
+  const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'markierte-belegstellen.csv';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
 async function load() {
   try {
     // Datenquelle konfigurierbar: Electron-Viewer -> '/api/data' (Default),
@@ -75,6 +121,12 @@ async function load() {
     const res = await fetch(src);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     DATA = await res.json();
+    // Stabiler Schlüssel pro Belegstelle: docId + laufende Nummer innerhalb des
+    // Gesetzes. Stabil, solange derselbe Datenstand geladen ist (Reihenfolge in
+    // data.json/DB ist fix) — Markierungen sind deshalb pro Datenstand gespeichert.
+    const seen = {};
+    for (const h of DATA.hits) { seen[h.docId] = (seen[h.docId] || 0) + 1; h._key = h.docId + '#' + seen[h.docId]; }
+    initMarks();
     render();
   } catch (e) {
     $('#meta-run').textContent = 'Fehler beim Laden: ' + e.message;
@@ -198,6 +250,7 @@ function applyFilters() {
   const fa = $('#f-adressat').value;
   const fr = $('#f-review').checked;
   const fsc = $('#f-sc').checked;
+  const fm = $('#f-marked').checked;
 
   let rows = DATA.hits.filter(h => {
     if (fp && h.priority !== fp) return false;
@@ -206,6 +259,7 @@ function applyFilters() {
     if (fa && h.adressat !== fa) return false;
     if (fr && !h.needsReview) return false;
     if (fsc && !(h.secondCheck && h.secondCheck.empfehlung !== 'behalten')) return false;
+    if (fm && !marks.has(h._key)) return false;
     if (q && !(h.title.toLowerCase().includes(q) || (h.beleg || '').toLowerCase().includes(q) || (h.proposed || '').toLowerCase().includes(q))) return false;
     return true;
   });
@@ -236,7 +290,8 @@ function renderTable(rows) {
       ? '<span class="badge review">JA</span>'
       : '<span class="badge ok">nein</span>') + scBadge(h.secondCheck);
     return `
-    <tr class="row" data-i="${i}">
+    <tr class="row${marks.has(h._key) ? ' marked' : ''}" data-i="${i}">
+      <td class="cell-mark"><input type="checkbox" class="mark-box" data-k="${esc(h._key)}" ${marks.has(h._key) ? 'checked' : ''} title="Für Export markieren"></td>
       <td class="cell-title">${esc(h.title.slice(0, 90))}<small>${esc(h.docId)} · ${esc(h.normType)}</small></td>
       <td><span class="badge prio-${esc(h.priority)}" ${endstatusTitle(h.endstatus)}>${esc(h.priority)}${endstatusSuffix(h.secondCheck)}</span></td>
       <td>${esc(h.category)}<br>${adrBadge(h.adressat)}</td>
@@ -254,6 +309,17 @@ function renderTable(rows) {
   // expand on click
   body.querySelectorAll('tr.row').forEach(tr => {
     tr.addEventListener('click', () => toggleDetail(tr, rows[+tr.dataset.i]));
+  });
+
+  // Markieren: stopPropagation, sonst klappt der Klick auch die Detailzeile auf
+  body.querySelectorAll('.mark-box').forEach(cb => {
+    cb.addEventListener('click', e => {
+      e.stopPropagation();
+      setMark(cb.dataset.k, cb.checked);
+      saveMarks();
+      cb.closest('tr').classList.toggle('marked', cb.checked);
+      if ($('#f-marked').checked) applyFilters(); // Zeile ggf. aus dem Filter nehmen
+    });
   });
 }
 
@@ -284,6 +350,7 @@ function renderGrouped(rows) {
       .map(k => `<span class="badge ${{ behalten: 'sc-behalten', herabstufen: 'sc-herabstufen', verwerfen: 'sc-verwerfen' }[k]}">${scCounts[k]}× ${k}</span>`).join(' ');
     const sub = hits.map(h => `
       <li>
+        <input type="checkbox" class="mark-box mark-sub" data-k="${esc(h._key)}" ${marks.has(h._key) ? 'checked' : ''} title="Für Export markieren">
         ${h.normstelle ? `<span class="norm-chip">${esc(h.normstelle)}</span>` : ''}
         <span class="badge prio-${esc(h.priority)}" ${endstatusTitle(h.endstatus)}>${esc(h.priority)}${endstatusSuffix(h.secondCheck)}</span>
         ${adrBadge(h.adressat)}
@@ -293,6 +360,7 @@ function renderGrouped(rows) {
       </li>`).join('');
     return `
       <tr class="row grp" data-g="${gi}">
+        <td class="cell-mark"><input type="checkbox" class="mark-law" data-g="${gi}" title="Ganzes Gesetz (alle Belegstellen) markieren"></td>
         <td class="cell-title">${esc(f.title.slice(0, 90))}<small>${esc(f.docId)} · ${esc(f.normType)}</small></td>
         <td><span class="badge prio-${esc(bp)}">${esc(bp)}</span></td>
         <td>${hits.length} Belegstellen</td>
@@ -301,13 +369,45 @@ function renderGrouped(rows) {
         <td>${review}</td>
         <td class="cell-beleg">${scSum || '<span class="muted">▸ aufklappen</span>'}</td>
       </tr>
-      <tr class="grp-detail hidden" data-gd="${gi}"><td colspan="7"><ul class="hit-list">${sub}</ul></td></tr>`;
+      <tr class="grp-detail hidden" data-gd="${gi}"><td colspan="8"><ul class="hit-list">${sub}</ul></td></tr>`;
   }).join('');
 
   body.querySelectorAll('tr.grp').forEach(tr => {
     tr.addEventListener('click', () => {
       const d = body.querySelector(`tr.grp-detail[data-gd="${tr.dataset.g}"]`);
       if (d) d.classList.toggle('hidden');
+    });
+  });
+
+  // Gesetz-Checkbox: Zustand aus den Einzel-Marks ableiten (voll/teilweise/leer),
+  // Klick markiert ALLE Belegstellen des Gesetzes auf einmal.
+  const lawState = (cb, hits) => {
+    const n = hits.filter(h => marks.has(h._key)).length;
+    cb.checked = n === hits.length && n > 0;
+    cb.indeterminate = n > 0 && n < hits.length; // "teilweise" = Strich statt Haken
+  };
+  body.querySelectorAll('.mark-law').forEach(cb => {
+    const hits = arr[+cb.dataset.g];
+    lawState(cb, hits);
+    cb.addEventListener('click', e => {
+      e.stopPropagation();
+      const on = cb.checked; // Zustand NACH dem Klick
+      for (const h of hits) setMark(h._key, on);
+      saveMarks();
+      const det = body.querySelector(`tr.grp-detail[data-gd="${cb.dataset.g}"]`);
+      if (det) det.querySelectorAll('.mark-sub').forEach(s => { s.checked = on; });
+      if ($('#f-marked').checked) applyFilters();
+    });
+  });
+  body.querySelectorAll('.mark-sub').forEach(cb => {
+    cb.addEventListener('click', e => {
+      e.stopPropagation();
+      setMark(cb.dataset.k, cb.checked);
+      saveMarks();
+      const det = cb.closest('tr.grp-detail');
+      const law = body.querySelector(`.mark-law[data-g="${det.dataset.gd}"]`);
+      if (law) lawState(law, arr[+det.dataset.gd]);
+      if ($('#f-marked').checked) applyFilters();
     });
   });
 }
@@ -318,7 +418,7 @@ function toggleDetail(tr, h) {
   document.querySelectorAll('tr.detail').forEach(d => d.remove());
   const det = document.createElement('tr');
   det.className = 'detail';
-  det.innerHTML = `<td colspan="7"><div class="detail-inner">
+  det.innerHTML = `<td colspan="8"><div class="detail-inner">
     <dl class="dl">
       <dt>Gesetz</dt><dd>${esc(h.title)}</dd>
       <dt>Normstelle</dt><dd>${esc(h.normstelle) || '<span style="color:var(--ink-faint)">nicht eindeutig auflösbar</span>'}</dd>
@@ -345,8 +445,26 @@ function fmtDate(s) {
 }
 
 // events — Viewer hat KEINEN Run-Picker/Refresh (fester Datensatz).
-['#f-search', '#f-priority', '#f-legal', '#f-category', '#f-adressat', '#f-review', '#f-sc', '#f-group'].forEach(s =>
+['#f-search', '#f-priority', '#f-legal', '#f-category', '#f-adressat', '#f-review', '#f-sc', '#f-group', '#f-marked'].forEach(s =>
   $(s).addEventListener('input', applyFilters));
+
+// Markierungs-Aktionen. Löschen zweistufig statt confirm() — window.confirm ist im
+// Electron-Renderer kaputt (Fokusverlust, stille nulls), darum nie verwenden.
+$('#btn-export-marked').addEventListener('click', exportMarkedCsv);
+let clearArmed = null;
+$('#btn-clear-marks').addEventListener('click', () => {
+  const btn = $('#btn-clear-marks');
+  if (!clearArmed) {
+    btn.textContent = 'Wirklich alle löschen?';
+    clearArmed = setTimeout(() => { btn.textContent = 'Markierungen leeren'; clearArmed = null; }, 4000);
+    return;
+  }
+  clearTimeout(clearArmed); clearArmed = null;
+  btn.textContent = 'Markierungen leeren';
+  marks.clear();
+  saveMarks();
+  applyFilters();
+});
 document.querySelectorAll('th.sortable').forEach(th => {
   th.addEventListener('click', () => {
     const k = th.dataset.sort;
