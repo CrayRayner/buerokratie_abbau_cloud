@@ -62,7 +62,11 @@
         <span class="result-count" id="result-count"></span>
         <span class="result-count mark-count" id="mark-count"></span>
         <button class="btn" id="btn-export-marked" disabled>Markierte als CSV</button>
+        <button class="btn" id="btn-save-marks" disabled>Auswahl sichern</button>
+        <button class="btn" id="btn-load-marks">Auswahl laden</button>
         <button class="btn" id="btn-clear-marks" disabled>Markierungen leeren</button>
+        <input type="file" id="file-load-marks" accept=".json,application/json" hidden>
+        <span class="result-count" id="mark-msg"></span>
       </div>
       <div class="table-scroll">
         <table id="hits-table">
@@ -107,6 +111,8 @@
         <dd>Die konkrete Norm (z. B. „§ 5 Abs. 2") mit dem wörtlichen Textbeleg — jeder Vorschlag ist am Gesetzestext verankert.</dd>
         <dt>Markieren &amp; Auswahl exportieren</dt>
         <dd>Häkchen vor einer Belegstelle setzen — oder in der gruppierten Ansicht vor einem Gesetz (markiert alle seine Belegstellen). „Markierte als CSV" lädt genau diese Auswahl herunter. Markierungen bleiben in diesem Browser gespeichert, auch nach dem Schließen.</dd>
+        <dt>Auswahl sichern / laden</dt>
+        <dd>„Auswahl sichern" lädt den aktuellen Markierungsstand als kleine Datei herunter (z. B. <code>auswahl-2026-07-05.json</code>). Mit „Auswahl laden" lässt sie sich auf einem anderen Rechner, in einem anderen Browser oder bei einem Kollegen wieder einlesen — bestehende Markierungen bleiben dabei erhalten (die geladenen kommen dazu). Die CSV ist dafür nicht geeignet; sie ist für Excel gedacht.</dd>
         <dt>CSV-Export</dt>
         <dd>Lädt alle bewerteten Belegstellen als Tabelle für Excel herunter.</dd>
       </dl>

@@ -290,3 +290,6 @@ tr.marked:hover { background: var(--accent-soft); }
 .mark-count { color: var(--accent-ink); font-weight: 600; }
 .filters .btn { padding: 6px 10px; font-size: 12px; }
 .filters .btn:disabled { opacity: 0.45; cursor: default; }
+
+/* Auswahl sichern/laden */
+#mark-msg { color: var(--accent-ink); font-style: italic; }

@@ -86,6 +86,60 @@ function updateMarkUi() {
   $('#mark-count').textContent = marks.size ? marks.size + ' markiert' : '';
   $('#btn-export-marked').disabled = marks.size === 0;
   $('#btn-clear-marks').disabled = marks.size === 0;
+  $('#btn-save-marks').disabled = marks.size === 0;
+}
+
+// Auswahl als Datei sichern/laden — fuer Geraetewechsel, Backup, Weitergabe an
+// Kollegen. Bewusst JSON statt CSV: die CSV ist fuers Lesen in Excel (und wird
+// dort beim Speichern gern verfaelscht); die JSON traegt die internen Schluessel
+// verlustfrei. Ein Format fuer Menschen, eines fuer die Maschine.
+function exportMarksFile() {
+  if (!marks.size) return;
+  const payload = {
+    type: 'ba-marks',
+    dataDate: DATA.dataDate || null,
+    saved: new Date().toISOString(),
+    marks: [...marks]
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'auswahl-' + new Date().toISOString().slice(0, 10) + '.json';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function importMarksFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    let p = null;
+    try { p = JSON.parse(reader.result); } catch { /* unten gemeldet */ }
+    if (!p || p.type !== 'ba-marks' || !Array.isArray(p.marks)) {
+      flashMarkMsg('Keine gültige Auswahl-Datei.');
+      return;
+    }
+    // Nur Schluessel uebernehmen, die es im aktuellen Datenstand wirklich gibt —
+    // Sicherungen aus einem anderen Datenstand richten so keinen stillen Schaden an.
+    const valid = new Set(DATA.hits.map(h => h._key));
+    let ok = 0, unknown = 0;
+    for (const k of p.marks) {
+      if (valid.has(k)) { if (!marks.has(k)) ok++; marks.add(k); }
+      else unknown++;
+    }
+    saveMarks();
+    applyFilters();
+    flashMarkMsg(ok + ' übernommen' + (unknown ? ', ' + unknown + ' unbekannt (anderer Datenstand?)' : '') + '.');
+  };
+  reader.onerror = () => flashMarkMsg('Datei konnte nicht gelesen werden.');
+  reader.readAsText(file);
+}
+
+let markMsgTimer = null;
+function flashMarkMsg(text) {
+  const el = $('#mark-msg');
+  el.textContent = text;
+  clearTimeout(markMsgTimer);
+  markMsgTimer = setTimeout(() => { el.textContent = ''; }, 6000);
 }
 
 function exportMarkedCsv() {
@@ -451,6 +505,12 @@ function fmtDate(s) {
 // Markierungs-Aktionen. Löschen zweistufig statt confirm() — window.confirm ist im
 // Electron-Renderer kaputt (Fokusverlust, stille nulls), darum nie verwenden.
 $('#btn-export-marked').addEventListener('click', exportMarkedCsv);
+$('#btn-save-marks').addEventListener('click', exportMarksFile);
+$('#btn-load-marks').addEventListener('click', () => $('#file-load-marks').click());
+$('#file-load-marks').addEventListener('change', e => {
+  if (e.target.files[0]) importMarksFile(e.target.files[0]);
+  e.target.value = ''; // sonst feuert 'change' nicht, wenn dieselbe Datei nochmal gewaehlt wird
+});
 let clearArmed = null;
 $('#btn-clear-marks').addEventListener('click', () => {
   const btn = $('#btn-clear-marks');
