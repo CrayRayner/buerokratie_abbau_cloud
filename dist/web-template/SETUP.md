@@ -153,9 +153,17 @@ Code-Updates am Viewer). Browser-Reload -> neue Zahlen da. Fertig.
 
 - [x] Passwoerter nur **gehasht** in `.htpasswd` (nie Klartext)
 - [x] `.htaccess`/`.htpasswd`/`*.md` werden **nicht ausgeliefert** (Regel in `.htaccess`)
-- [x] **HTTPS erzwungen** (Redirect in `.htaccess`)
+- [x] **HTTPS erzwungen** (Redirect in `.htaccess`; http-Requests sind von der Auth
+      ausgenommen, damit der Redirect VOR dem Login-Popup greift — sonst gingen
+      Credentials im Klartext raus)
+- [x] **HSTS gesetzt** (Browser erzwingt https ab dem ersten Besuch; gilt host-weit)
 - [x] Sicherheits-Header (CSP, nosniff, Framing) gesetzt
 - [x] Verzeichnis-Listing aus
 - [ ] `pfad.php` nach Gebrauch geloescht (dein Schritt!)
 - [ ] Login nur ueber `https://` getestet (nie bei "Nicht sicher")
+- [ ] Redirect-Test: `http://…` aufrufen -> es MUSS sofort auf `https://` umspringen,
+      OHNE dass vorher ein Login-Popup kommt. Kommt erst das Popup, ist die
+      `.htaccess` auf dem Server veraltet (Abschnitt 1+2 aus dem Template nachziehen)
+- [ ] Falls je ueber `http://` eingeloggt wurde: Passwort rotieren
+      (`node dist/gen-htpasswd.js <name>` und neue `.htpasswd` hochladen)
 - [ ] `.htpasswd` ist NICHT in git (per `.gitignore` ausgeschlossen — nicht aendern)

@@ -6,18 +6,27 @@
 # sonst je nach Encoding-Einstellung als Zeichensalat.
 
 # --- 1. HTTPS erzwingen (Login-Daten nie ueber http senden) ---
-<IfModule mod_rewrite.c>
-  RewriteEngine On
-  RewriteCond %{HTTPS} off
-  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
-</IfModule>
+# BEWUSST OHNE <IfModule>-Wrapper: fehlt mod_rewrite, soll der Server mit Fehler 500
+# stoppen (fail-closed) statt die Seite still ohne Redirect auszuliefern.
+RewriteEngine On
+RewriteCond %{HTTPS} off
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
 # --- 2. Login (HTTP Basic Auth; Passwoerter gehasht in .htpasswd) ---
 AuthType Basic
 AuthName "Buerokratieabbau Bayern - bitte anmelden"
 # WICHTIG: absoluten Serverpfad eintragen (SETUP.md erklaert, wie du ihn findest):
 AuthUserFile /HIER/ABSOLUTEN/PFAD/EINTRAGEN/.htpasswd
-Require valid-user
+# Apache prueft Auth VOR dem Rewrite (Fixup-Phase). Mit blossem "Require valid-user"
+# kaeme ueber http:// also ERST das Login-Popup (Credentials im Klartext!) und der
+# Redirect nie. Loesung: http-Requests von der Auth ausnehmen — sie erreichen dann
+# den Rewrite und werden auf https umgeleitet, wo die Auth greift. Inhalt wird ueber
+# http NIE ausgeliefert (Redirect kommt vor dem Content-Handler; und ohne mod_rewrite
+# stoppt Regel 1 mit 500).
+<RequireAny>
+  Require expr "%{HTTPS} == 'off'"
+  Require valid-user
+</RequireAny>
 
 # --- 3. Sensible Dateien NIE ausliefern (zusaetzlich zum Apache-Default) ---
 <FilesMatch "(^\.ht|\.md$)">
@@ -26,12 +35,19 @@ Require valid-user
 
 # --- 4. Sicherheits-Header ---
 <IfModule mod_headers.c>
+  # HSTS: Browser merkt sich 1 Jahr lang "nur https fuer diesen Host".
+  # ACHTUNG: wirkt HOST-weit (ganze Domain), nicht nur fuer diesen Ordner.
+  # Nur setzen, wenn https auf der Domain stabil laeuft (Zertifikat geprueft).
+  # Bewusst OHNE includeSubDomains/preload — Subdomains gehen uns nichts an.
+  Header always set Strict-Transport-Security "max-age=31536000" "expr=%{HTTPS} == 'on'"
   Header always set X-Content-Type-Options "nosniff"
   Header always set X-Frame-Options "SAMEORIGIN"
   Header always set Referrer-Policy "no-referrer"
   Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
-  # Nur eigene Skripte + der Chart.js-Vendor lokal; keine Fremd-Einbindung.
-  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'self'"
+  # Eigene Skripte + Chart.js-Vendor lokal; einzige Fremd-Quelle: Google Fonts
+  # (style.css laedt Oxanium/Space Grotesk per @import — ohne diese Ausnahmen
+  # blockt die CSP die Schriften).
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'self'"
 </IfModule>
 
 # --- 5. Verzeichnis-Listing aus ---
