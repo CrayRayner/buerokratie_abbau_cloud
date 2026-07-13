@@ -293,3 +293,18 @@ tr.marked:hover { background: var(--accent-soft); }
 
 /* Auswahl sichern/laden */
 #mark-msg { color: var(--accent-ink); font-style: italic; }
+
+/* Notizen */
+.cell-note { max-width: 220px; min-width: 100px; font-size: 12.5px; color: var(--ink-soft); }
+.note-add { color: var(--ink-faint); font-size: 12px; }
+tr.row:hover .note-add { color: var(--accent-ink); }
+.note-block { display: grid; gap: 6px; }
+.note-label { font-size: 12px; color: var(--ink-faint); }
+.note-edit {
+  width: 100%; min-height: 64px; resize: vertical;
+  font-family: inherit; font-size: 13px; line-height: 1.45;
+  padding: 8px 11px; border: 1px solid var(--rim); border-radius: 8px;
+  background: var(--surface); color: var(--ink);
+}
+.note-edit:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.hit-list .note-line { color: var(--accent-ink); font-size: 12.5px; margin-top: 3px; }

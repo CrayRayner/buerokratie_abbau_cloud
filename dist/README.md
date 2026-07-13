@@ -37,7 +37,9 @@ Read-only-Fork des Dashboards: der Server macht ausschliesslich `SELECT` auf `di
 Run-Picker/Refresh sind raus (ein fester Datensatz), ein `?`-Hilfe-Overlay erklaert die
 Spalten fuer Nicht-Techniker. Angezeigt wird nur der Datenstand, nicht der Modellname.
 Reviewer koennen Belegstellen/Gesetze MARKIEREN (localStorage), die Auswahl als CSV
-exportieren und den Markierungsstand als JSON-Datei sichern/laden (Geraetewechsel,
+exportieren, NOTIZEN je Belegstelle hinterlegen (Spalte "Notiz", Bearbeiten in der
+Detailzeile; landet auch in der Markierte-CSV) und den Stand (Haken + Notizen) als
+JSON-Datei sichern/laden (Geraetewechsel,
 Backup, Weitergabe — CSV ist fuers Lesen in Excel, JSON fuer die Maschine).
 
 > Das `public/`-Frontend ist ein **Fork** von `dashboard/public/`. Aendert sich das

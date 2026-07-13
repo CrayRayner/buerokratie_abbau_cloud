@@ -71,10 +71,15 @@ function endstatusTitle(endstatus) {
 // Kein Server nötig: Auswahl lebt im Browser, Export der Auswahl passiert clientseitig.
 let marks = new Set();
 let marksKey = 'ba_marks';
+let notes = {};              // key -> Notiztext (nur nicht-leere)
+let notesKey = 'ba_notes';
 function initMarks() {
   marksKey = 'ba_marks::' + (DATA.dataDate || 'default'); // neuer Datenstand = frische Auswahl
+  notesKey = 'ba_notes::' + (DATA.dataDate || 'default');
   try { marks = new Set(JSON.parse(localStorage.getItem(marksKey) || '[]')); }
   catch { marks = new Set(); }
+  try { notes = JSON.parse(localStorage.getItem(notesKey) || '{}') || {}; }
+  catch { notes = {}; }
   updateMarkUi();
 }
 function saveMarks() {
@@ -82,11 +87,32 @@ function saveMarks() {
   updateMarkUi();
 }
 function setMark(key, on) { if (on) marks.add(key); else marks.delete(key); }
+
+// Leere Notiz = Eintrag loeschen (haelt Zaehler und Export sauber)
+function setNote(key, text) {
+  if (text && text.trim()) notes[key] = text;
+  else delete notes[key];
+  localStorage.setItem(notesKey, JSON.stringify(notes));
+  updateMarkUi();
+}
+function notePreview(key) {
+  const t = (notes[key] || '').trim().replace(/\s+/g, ' ');
+  return t.length > 60 ? t.slice(0, 60) + '…' : t;
+}
+function renderNoteCell(cell, key) {
+  const t = notePreview(key);
+  cell.innerHTML = t ? esc(t) : '<span class="note-add">＋ Notiz</span>';
+}
 function updateMarkUi() {
-  $('#mark-count').textContent = marks.size ? marks.size + ' markiert' : '';
+  const nNotes = Object.keys(notes).length;
+  const parts = [];
+  if (marks.size) parts.push(marks.size + ' markiert');
+  if (nNotes) parts.push(nNotes + ' Notiz' + (nNotes === 1 ? '' : 'en'));
+  $('#mark-count').textContent = parts.join(' · ');
   $('#btn-export-marked').disabled = marks.size === 0;
   $('#btn-clear-marks').disabled = marks.size === 0;
-  $('#btn-save-marks').disabled = marks.size === 0;
+  // Sichern lohnt auch, wenn es NUR Notizen gibt
+  $('#btn-save-marks').disabled = marks.size === 0 && nNotes === 0;
 }
 
 // Auswahl als Datei sichern/laden — fuer Geraetewechsel, Backup, Weitergabe an
@@ -94,12 +120,13 @@ function updateMarkUi() {
 // dort beim Speichern gern verfaelscht); die JSON traegt die internen Schluessel
 // verlustfrei. Ein Format fuer Menschen, eines fuer die Maschine.
 function exportMarksFile() {
-  if (!marks.size) return;
+  if (!marks.size && !Object.keys(notes).length) return;
   const payload = {
     type: 'ba-marks',
     dataDate: DATA.dataDate || null,
     saved: new Date().toISOString(),
-    marks: [...marks]
+    marks: [...marks],
+    notes // Notizen wandern im selben Stand mit (gleiche Datei, ein Begriff: "Auswahl")
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
@@ -126,9 +153,25 @@ function importMarksFile(file) {
       if (valid.has(k)) { if (!marks.has(k)) ok++; marks.add(k); }
       else unknown++;
     }
+    // Notizen: nicht-destruktiver Merge — eine schon vorhandene EIGENE Notiz wird
+    // nie von einer importierten ueberschrieben (eigene Arbeit geht nie verloren).
+    let nOk = 0, nSkip = 0;
+    if (p.notes && typeof p.notes === 'object') {
+      for (const [k, txt] of Object.entries(p.notes)) {
+        if (!valid.has(k) || typeof txt !== 'string' || !txt.trim()) { unknown += valid.has(k) ? 0 : 1; continue; }
+        if (notes[k] && notes[k].trim() && notes[k] !== txt) { nSkip++; continue; }
+        if (!notes[k]) nOk++;
+        notes[k] = txt;
+      }
+      localStorage.setItem(notesKey, JSON.stringify(notes));
+    }
     saveMarks();
     applyFilters();
-    flashMarkMsg(ok + ' übernommen' + (unknown ? ', ' + unknown + ' unbekannt (anderer Datenstand?)' : '') + '.');
+    const bits = [ok + ' Markierungen übernommen'];
+    if (nOk) bits.push(nOk + ' Notizen übernommen');
+    if (nSkip) bits.push(nSkip + ' Notizen übersprungen (eigene vorhanden)');
+    if (unknown) bits.push(unknown + ' unbekannt (anderer Datenstand?)');
+    flashMarkMsg(bits.join(', ') + '.');
   };
   reader.onerror = () => flashMarkMsg('Datei konnte nicht gelesen werden.');
   reader.readAsText(file);
@@ -148,7 +191,7 @@ function exportMarkedCsv() {
   const escC = v => { const s = String(v == null ? '' : v); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   const header = ['Gesetz', 'Normtyp', 'Normstelle', 'Belegstelle', 'Pflichttyp', 'Adressat', 'Belegtext',
     'Aenderungsvorschlag', 'Risiko', 'Prioritaet', 'ensemble_votes', 'beleg_sicherheit',
-    'rechtlich_gebunden', 'human_review', 'Zweitcheck', 'Zweitcheck_Begruendung', 'Endstatus', 'URL'];
+    'rechtlich_gebunden', 'human_review', 'Zweitcheck', 'Zweitcheck_Begruendung', 'Endstatus', 'URL', 'Notiz'];
   const lines = [header.join(';')];
   for (const h of rows) {
     const sc = h.secondCheck;
@@ -156,7 +199,7 @@ function exportMarkedCsv() {
       h.burden, h.proposed, h.risks, h.priority, h.confidence,
       h.grounded ? 'hoch' : 'niedrig', h.legalFull, h.needsReview ? 'JA' : 'nein',
       sc ? sc.empfehlung || '' : '', sc ? sc.begruendung || '' : '',
-      h.endstatus || '', h.url].map(escC).join(';'));
+      h.endstatus || '', h.url, notes[h._key] || ''].map(escC).join(';'));
   }
   // BOM voran, damit Excel die Umlaute als UTF-8 erkennt
   const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
@@ -314,7 +357,7 @@ function applyFilters() {
     if (fr && !h.needsReview) return false;
     if (fsc && !(h.secondCheck && h.secondCheck.empfehlung !== 'behalten')) return false;
     if (fm && !marks.has(h._key)) return false;
-    if (q && !(h.title.toLowerCase().includes(q) || (h.beleg || '').toLowerCase().includes(q) || (h.proposed || '').toLowerCase().includes(q))) return false;
+    if (q && !(h.title.toLowerCase().includes(q) || (h.beleg || '').toLowerCase().includes(q) || (h.proposed || '').toLowerCase().includes(q) || (notes[h._key] || '').toLowerCase().includes(q))) return false;
     return true;
   });
 
@@ -357,6 +400,7 @@ function renderTable(rows) {
         <div class="beleg-text">${esc((h.beleg || h.burden || '').slice(0, 130))}${(h.beleg || '').length > 130 ? '…' : ''}</div>
         ${h.proposed ? `<div class="prop">▸ ${esc(h.proposed.slice(0, 130))}${h.proposed.length > 130 ? '…' : ''}</div>` : ''}
       </td>
+      <td class="cell-note" data-nk="${esc(h._key)}">${notePreview(h._key) ? esc(notePreview(h._key)) : '<span class="note-add">＋ Notiz</span>'}</td>
     </tr>`;
   }).join('');
 
@@ -410,6 +454,7 @@ function renderGrouped(rows) {
         ${adrBadge(h.adressat)}
         <b>${esc(h.category)}</b> — ${esc((h.beleg || h.burden || '').slice(0, 160))}
         ${h.proposed ? `<div class="prop">▸ ${esc(h.proposed.slice(0, 180))}</div>` : ''}
+        ${notes[h._key] ? `<div class="note-line">📝 ${esc(notes[h._key])}</div>` : ''}
         ${h.secondCheck ? `<div class="sc-line">${scBadge(h.secondCheck)} ${esc(h.secondCheck.begruendung || '')}</div>` : ''}
       </li>`).join('');
     return `
@@ -422,8 +467,9 @@ function renderGrouped(rows) {
         <td>${esc(f.confidence)}</td>
         <td>${review}</td>
         <td class="cell-beleg">${scSum || '<span class="muted">▸ aufklappen</span>'}</td>
+        <td class="cell-note">${(n => n ? n + ' 📝' : '')(hits.filter(h => notes[h._key]).length)}</td>
       </tr>
-      <tr class="grp-detail hidden" data-gd="${gi}"><td colspan="8"><ul class="hit-list">${sub}</ul></td></tr>`;
+      <tr class="grp-detail hidden" data-gd="${gi}"><td colspan="9"><ul class="hit-list">${sub}</ul></td></tr>`;
   }).join('');
 
   body.querySelectorAll('tr.grp').forEach(tr => {
@@ -472,7 +518,7 @@ function toggleDetail(tr, h) {
   document.querySelectorAll('tr.detail').forEach(d => d.remove());
   const det = document.createElement('tr');
   det.className = 'detail';
-  det.innerHTML = `<td colspan="8"><div class="detail-inner">
+  det.innerHTML = `<td colspan="9"><div class="detail-inner">
     <dl class="dl">
       <dt>Gesetz</dt><dd>${esc(h.title)}</dd>
       <dt>Normstelle</dt><dd>${esc(h.normstelle) || '<span style="color:var(--ink-faint)">nicht eindeutig auflösbar</span>'}</dd>
@@ -489,8 +535,23 @@ function toggleDetail(tr, h) {
         <br><small class="muted">Unternehmensbindung: ${esc(h.secondCheck.unternehmensbindung || '?')} · Rechtsbindung ok: ${esc(h.secondCheck.rechtsbindung_respektiert || '?')} · Hebel korrekt: ${esc(h.secondCheck.hebel_richtung_korrekt || '?')} · Beleg plausibel: ${esc(h.secondCheck.beleg_plausibel || '?')}</small></dd>
         <dt>Endstatus</dt><dd><b>${esc(h.endstatus || h.priority)}</b> <small class="muted">(Prioritätsbuchstabe bleibt unverändert — Endstatus ist eine kombinierte Anzeige, kein automatisches Downgrade)</small></dd>` : ''}
     </dl>
+    <div class="note-block">
+      <label class="note-label" for="note-edit-field">Eigene Notiz</label>
+      <textarea id="note-edit-field" class="note-edit"
+        placeholder="Notiz zu dieser Belegstelle… (speichert automatisch, nur in diesem Browser)">${esc(notes[h._key] || '')}</textarea>
+      <small class="muted">Automatisch gespeichert · persönlich (dieser Browser) · in „Auswahl sichern" und „Markierte als CSV" enthalten</small>
+    </div>
   </div></td>`;
   tr.after(det);
+
+  // Notiz-Feld: speichert bei jedem Tastendruck (localStorage ist billig) und
+  // aktualisiert die Vorschau-Zelle der zugehörigen Zeile live.
+  const ta = det.querySelector('.note-edit');
+  ta.addEventListener('input', () => {
+    setNote(h._key, ta.value);
+    const cell = tr.querySelector('td.cell-note');
+    if (cell) renderNoteCell(cell, h._key);
+  });
 }
 
 function fmtDate(s) {

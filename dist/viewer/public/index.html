@@ -50,7 +50,7 @@
 
     <section class="card table-card">
       <div class="filters">
-        <input type="search" id="f-search" placeholder="Suche Gesetz / Belegstelle…" autocomplete="off">
+        <input type="search" id="f-search" placeholder="Suche Gesetz / Belegstelle / Notiz…" autocomplete="off">
         <select id="f-priority"><option value="">Alle Prioritäten</option></select>
         <select id="f-legal"><option value="">Alle Rechtsbindungen</option></select>
         <select id="f-category"><option value="">Alle Pflichttypen</option></select>
@@ -80,6 +80,7 @@
               <th class="sortable" data-sort="confidence">Votes</th>
               <th>Prüfung</th>
               <th>Belegstelle / Vorschlag</th>
+              <th title="Zeile anklicken, um eine Notiz zu schreiben">Notiz</th>
             </tr>
           </thead>
           <tbody id="hits-body"></tbody>
@@ -111,6 +112,8 @@
         <dd>Die konkrete Norm (z. B. „§ 5 Abs. 2") mit dem wörtlichen Textbeleg — jeder Vorschlag ist am Gesetzestext verankert.</dd>
         <dt>Markieren &amp; Auswahl exportieren</dt>
         <dd>Häkchen vor einer Belegstelle setzen — oder in der gruppierten Ansicht vor einem Gesetz (markiert alle seine Belegstellen). „Markierte als CSV" lädt genau diese Auswahl herunter. Markierungen bleiben in diesem Browser gespeichert, auch nach dem Schließen.</dd>
+        <dt>Notizen</dt>
+        <dd>Eine Zeile anklicken — in der aufgeklappten Detailansicht gibt es ein Notizfeld, das automatisch speichert. Die Vorschau erscheint in der Spalte „Notiz". Notizen sind persönlich (in diesem Browser gespeichert), stecken mit in „Auswahl sichern/laden" und erscheinen als eigene Spalte in „Markierte als CSV". In der gruppierten Ansicht werden Notizen angezeigt, bearbeitet wird in der flachen Tabelle.</dd>
         <dt>Auswahl sichern / laden</dt>
         <dd>„Auswahl sichern" lädt den aktuellen Markierungsstand als kleine Datei herunter (z. B. <code>auswahl-2026-07-05.json</code>). Mit „Auswahl laden" lässt sie sich auf einem anderen Rechner, in einem anderen Browser oder bei einem Kollegen wieder einlesen — bestehende Markierungen bleiben dabei erhalten (die geladenen kommen dazu). Die CSV ist dafür nicht geeignet; sie ist für Excel gedacht.</dd>
         <dt>CSV-Export</dt>
