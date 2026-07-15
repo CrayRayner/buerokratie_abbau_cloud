@@ -124,9 +124,20 @@ function resolveNorm(quote, text, nm) {
     const abs = direct[2] || direct[3];
     return abs ? `§ ${direct[1]} Abs. ${abs}` : `§ ${direct[1]}`;
   }
-  const qn = q.toLowerCase().replace(/[^a-zäöüß0-9]/g, '');
+  const qn = normMatch(q);
   if (qn.length < 12) return '';
-  const idx = nm.norm.indexOf(qn.slice(0, 30));
+  // Belegstelle im Volltext lokalisieren: erst die ersten 30 Zeichen zusammenhaengend
+  // (praezise, haeufigster Fall). Scheitert das — typisch, wenn das Modell das Zitat
+  // mit "..." gekuerzt hat und der 30er-Anker quer ueber die Luecke liegt — auf die
+  // Fenster-Suche von isGrounded zurueckfallen: erstes woertlich passendes 25er-Fenster.
+  // Dadurch bekommen auch gekuerzte (aber gegroundete) Zitate ihre Normstelle.
+  let idx = nm.norm.indexOf(qn.slice(0, 30));
+  if (idx < 0) {
+    for (let i = 0; i + 25 <= qn.length; i += 5) {
+      const j = nm.norm.indexOf(qn.slice(i, i + 25));
+      if (j >= 0) { idx = j; break; }
+    }
+  }
   if (idx < 0) return '';
   const origPos = nm.map[idx];
   // +6 Zeichen über die Fundstelle hinaus, damit ein direkt am Zitat-Anfang
