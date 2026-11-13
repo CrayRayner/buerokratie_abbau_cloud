@@ -114,6 +114,7 @@ Alle Einstellungen in **`config.json`**:
 | `ensembleTemperature` | Temperatur der Läufe (**>0**, sonst keine Varianz fürs Voting) | `0.4` |
 | `maxTokens` | max. Ausgabe-Tokens pro Lauf (Reasoning braucht real 10–15k) | `32000` |
 | `maxAnalyzeDocs` | max. Anzahl analysierter Docs pro Lauf (0 = alle) | `50` |
+| `maxConsecutiveFailures` | Sicherung: nach so vielen Dokumenten **in Folge** ohne auswertbares Ergebnis bricht der Lauf ab (Hinweis auf systemischen Fehler: Server weg, Netz, Limit) | `3` |
 | `maxDocChars` | nur Docs bis zu dieser Zeichenzahl (0 = alle; Demo: `80000`) | `80000` |
 | `chunkThreshold` | Docs über dieser Zeichenzahl werden gechunkt (an §-Grenzen) | `70000` |
 | `concurrency` | parallele Anfragen an LM Studio | `1` |
@@ -275,6 +276,34 @@ Die Analyse überspringt Docs, die bereits eine **aktuelle** Analyse haben
   (der neue Text ist jünger als die alte Analyse).
 - `maxAnalyzeDocs: 50` analysiert bei jedem Lauf die **nächsten** 50 offenen Docs,
   nicht immer dieselben.
+
+### Ausfälle: kein Ergebnis statt falsches Ergebnis
+
+Ein ausgefallener Lauf (Timeout, HTTP-Fehler, leere oder kaputte Antwort) ist **keine Stimme** —
+weder für noch gegen einen Befund. Die Mehrheits-Schwelle bleibt unverändert; entschieden wird
+aber nur, wenn die **gültigen** Läufe das Ergebnis tragen (Prinzip *fail-closed*):
+
+| Läufe (bei 3) | Ergebnis |
+|---|---|
+| 2 Treffer + 1 Ausfall | Treffer — die Mehrheit steht |
+| 2× nichts + 1 Ausfall | kein Befund — der Ausfall hätte es nicht mehr gekippt |
+| 1 Treffer + 1× nichts + 1 Ausfall | **kein Ergebnis** — der fehlende Lauf hätte entschieden |
+| 3 Ausfälle | **kein Ergebnis** |
+
+„Kein Ergebnis" heißt: es wird **keine** Zeile in `analyses` geschrieben. Das Doc bleibt offen und
+wird beim nächsten Lauf wiederholt — in der Reihenfolge zuletzt, damit chronische Problemfälle
+nicht jeden Lauf am Anfang blockieren. Der Ausfall steht samt Fehlermeldungen in der Tabelle
+`analysis_failures`; eine evtl. vorhandene ältere Analyse des Docs bleibt unangetastet. Bei
+gechunkten Gesetzen genügt **ein** unentschiedenes Fenster (sonst bliebe ein Teil des Gesetzes
+ungeprüft, ohne dass man es sähe).
+
+Der Lauf **bricht ab**, statt weiterzuzählen:
+- **sofort** bei fehlendem/ungültigem API-Key oder leerem Guthaben (HTTP 401/402),
+- nach `maxConsecutiveFailures` Dokumenten in Folge ohne Ergebnis.
+
+Altlasten aus früheren Läufen — Docs, die als „keine Belastung, 0/3" gespeichert wurden, obwohl
+kein einziger Lauf geantwortet hatte — werden automatisch erkannt und beim nächsten Lauf nachgeholt.
+Prüfen ohne Lauf: `npm run status` (Zeile „Ohne Ergebnis"), Regeln als Test: `node tests/test-outcome.js`.
 
 ---
 
@@ -505,6 +534,7 @@ Dubletten-Clustering ähnlicher Vorschläge.
 - **Kerntabellen:**
   - `documents` — gecrawlte Volltexte (`text`, `char_count`, `downloaded_at`)
   - `raw_analyses` — alle Einzelläufe (append-only, pro `run_session`)
+  - `analysis_failures` — Ausfall-Protokoll (append-only): Docs, für die ein Lauf **kein** auswertbares Ergebnis lieferte, mit Grund und Fehlermeldungen
   - `analyses` — aggregiertes Endergebnis (eine Zeile pro Dokument, `analyzed_at`,
     `second_check` = Zweitcheck-Urteile als JSON-Array, `NULL` solange ungeprüft)
   - `pipeline_status` — Fortschritt der Phasen
@@ -548,7 +578,8 @@ git checkout -- .
 | Problem | Lösung |
 |---|---|
 | `ECONNREFUSED` / Analyse hängt | LM-Studio-Server läuft nicht oder falscher Port → Server starten, `lmStudioEndpoint` prüfen |
-| `[LM Studio: empty content]` / Token-Limit | Modell hat leer/abgeschnitten geliefert → Ensemble fängt Einzelausfälle ab; tritt es gehäuft auf, war der Reasoning-Loop zu lang (Sampler/`maxTokens` prüfen) |
+| `Leere Antwort vom Modell` / `Token-Limit erreicht` | Modell hat leer/abgeschnitten geliefert → zählt als **Ausfall**, nicht als „nichts gefunden". Einzelausfälle fängt das Ensemble ab, solange die übrigen Läufe das Ergebnis tragen; sonst bleibt das Doc offen (siehe [Ausfälle](#ausfälle-kein-ergebnis-statt-falsches-ergebnis)). Tritt es gehäuft auf: Reasoning-Loop zu lang (Sampler/`maxTokens` prüfen) |
+| Lauf endet mit `ABBRUCH: …` | Systemischer Fehler: API-Key fehlt/ungültig, Guthaben leer, oder mehrere Docs in Folge ohne Ergebnis. Ursache beheben, erneut starten — Gespeichertes bleibt erhalten, offene Docs werden nachgeholt |
 | Endlos-Reasoning / sehr langsame Docs | Loop-Verdacht → `repeat_penalty` (1.1) und `maxTokens` prüfen; betroffenes Doc als `testDocIds`-Mini-Test isolieren |
 | Crawler startet nicht / Browser-Fehler | `npx playwright install chromium` ausführen |
 | `better-sqlite3`-Fehler nach `npm install` | Node-Version prüfen; ggf. `npm rebuild better-sqlite3` |

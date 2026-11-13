@@ -78,6 +78,18 @@ function initSchema() {
       created_at       TEXT DEFAULT (datetime('now'))
     );
 
+    -- Ausfall-Protokoll (append-only): Docs, für die ein Lauf KEIN auswertbares Ergebnis
+    -- lieferte. Solche Docs bekommen bewusst keine analyses-Zeile und bleiben offen.
+    CREATE TABLE IF NOT EXISTS analysis_failures (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      doc_id        TEXT NOT NULL,
+      run_session   TEXT,
+      model         TEXT,
+      reason        TEXT,
+      errors        TEXT,
+      created_at    TEXT DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS reporting_duties (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
       analysis_id   INTEGER NOT NULL REFERENCES analyses(id),

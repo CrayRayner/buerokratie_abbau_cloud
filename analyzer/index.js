@@ -15,20 +15,7 @@ async function analyze() {
   const runSession = new Date().toISOString().replace(/[:.]/g, '-');
 
   try {
-    let query;
-    const params = [];
-    if (config.testDocIds && config.testDocIds.length > 0) {
-      const ph = config.testDocIds.map(() => '?').join(',');
-      query = `SELECT d.* FROM documents d WHERE d.text IS NOT NULL AND d.char_count > 10 AND d.doc_id IN (${ph})`;
-      params.push(...config.testDocIds);
-    } else {
-      query = `SELECT d.* FROM documents d WHERE d.text IS NOT NULL AND d.char_count > 10 AND NOT EXISTS (SELECT 1 FROM analyses a WHERE a.doc_id = d.doc_id AND a.analyzed_at >= d.downloaded_at)`;
-      if (config.maxDocChars > 0) {
-        query += ` AND d.char_count <= ?`;
-        params.push(config.maxDocChars);
-      }
-    }
-    const pendingDocs = db.prepare(query).all(...params);
+    const pendingDocs = selectPendingDocs(db);
 
     const maxAnalyze = config.maxAnalyzeDocs || 0;
     const analyzeList = maxAnalyze > 0 ? pendingDocs.slice(0, maxAnalyze) : pendingDocs;
@@ -46,37 +33,77 @@ async function analyze() {
     const ensembleTemp = config.ensembleTemperature || 0.1;
 
     let done = 0;
-    let errors = 0;
+    let saved = 0;
     let idx = 0;
+    const failedDocs = [];        // Docs ohne auswertbares Ergebnis in DIESEM Lauf
+    let consecutiveFailed = 0;    // Ausfälle in Folge (Sicherung gegen systemische Fehler)
+    let abortReason = null;       // gesetzt -> Lauf stoppt, es werden keine Docs mehr begonnen
+    const maxConsecutive = config.maxConsecutiveFailures > 0 ? config.maxConsecutiveFailures : 3;
+
+    // Ausfall protokollieren statt als Ergebnis speichern (fail-closed): es entsteht KEINE
+    // Zeile in analyses -> das Doc bleibt offen und wird beim nächsten Lauf wiederholt.
+    // Eine evtl. vorhandene ältere Analyse des Docs bleibt unangetastet.
+    function recordFailure(doc, reason, errs) {
+      failedDocs.push(doc.doc_id);
+      consecutiveFailed++;
+      console.warn(`  [ANALYZE] ${doc.doc_id}: KEIN ERGEBNIS (${reason}) — nicht gespeichert, bleibt offen`);
+      try {
+        db.prepare(`
+          INSERT INTO analysis_failures (doc_id, run_session, model, reason, errors)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(doc.doc_id, runSession, analyzeModelName(), reason, errs.join(' | ').slice(0, 2000));
+      } catch (e) {
+        console.error('  [ANALYZE] Ausfall-Protokoll fehlgeschlagen:', e.message);
+      }
+    }
 
     // Ein Ensemble (ensembleRuns Läufe) auf einem Textstück; speichert raw_analyses.
-    async function runEnsembleOnText(doc, text, tag, runOffset) {
+    // errs sammelt die Fehlermeldungen dieses Docs fürs Ausfall-Protokoll.
+    async function runEnsembleOnText(doc, text, tag, runOffset, errs) {
       const prompt = buildPrompt(doc.title, text);
       const results = [];
+      const label = tag ? tag + ' ' : '';
       for (let r = 0; r < ensembleRuns; r++) {
         try {
           const result = await analyzeWithLLM(prompt, doc.doc_id + (tag || ''), ensembleTemp);
-          results.push(result);
+          // Rohantwort IMMER sichern (Beweismittel) — auch wenn sie sich gleich als unbrauchbar erweist.
           db.prepare(`
             INSERT INTO raw_analyses (doc_id, run_index, temperature, raw_response, model, run_session)
             VALUES (?, ?, ?, ?, ?, ?)
           `).run(doc.doc_id, runOffset + r, ensembleTemp, JSON.stringify(result), analyzeModelName(), runSession);
-          process.stdout.write(`    ${tag ? tag + ' ' : ''}run ${r + 1}/${ensembleRuns}: ${result.hits ? result.hits.length : 0} hits\n`);
+          if (!isValidRun(result)) {
+            console.error(`    ${label}run ${r + 1}/${ensembleRuns} UNGÜLTIG: Antwort ohne hits-Array`);
+            errs.push(`${label}run ${r + 1}: Antwort ohne hits-Array`);
+            results.push(null);
+            continue;
+          }
+          results.push(result);
+          process.stdout.write(`    ${label}run ${r + 1}/${ensembleRuns}: ${result.hits.length} hits\n`);
         } catch (runErr) {
-          console.error(`    ${tag ? tag + ' ' : ''}run ${r + 1}/${ensembleRuns} FAILED:`, runErr.message);
+          console.error(`    ${label}run ${r + 1}/${ensembleRuns} FAILED:`, runErr.message);
+          errs.push(`${label}run ${r + 1}: ${runErr.message}`);
           results.push(null);
+          if (isFatalError(runErr.message)) {
+            // Systemischer Fehler (Key fehlt/ungültig, Guthaben leer): jeder weitere Aufruf
+            // würde genauso scheitern -> sofort abbrechen statt den Korpus durchzurattern.
+            const fatal = new Error(runErr.message);
+            fatal.fatal = true;
+            throw fatal;
+          }
         }
       }
       return results;
     }
 
     async function processDoc(doc) {
+      const errs = [];
       try {
         const charCount = doc.char_count || doc.text.length;
         const chunkThreshold = config.chunkThreshold || 70000;
         let aggregated;
         let rawResults = [];
         const wasSummarized = false;
+        let incomplete = null; // Text-Grund, wenn ein Ensemble keine Entscheidung trägt
 
         if (charCount > chunkThreshold) {
           // Große Gesetze: an §-Grenzen in Fenster splitten, jedes Fenster im Ensemble
@@ -85,15 +112,30 @@ async function analyze() {
           console.log(`[ANALYZE] [${++done}/${total}] ${doc.doc_id} (${charCount} chars) — GECHUNKT in ${windows.length} §-Fenster`);
           const perWindow = [];
           for (let w = 0; w < windows.length; w++) {
-            const winResults = await runEnsembleOnText(doc, windows[w], `#f${w + 1}`, w * ensembleRuns);
+            const winResults = await runEnsembleOnText(doc, windows[w], `#f${w + 1}`, w * ensembleRuns, errs);
             rawResults.push(...winResults);
-            perWindow.push(aggregateEnsemble(winResults.filter(Boolean), ensembleRuns, doc.text));
+            const winAgg = aggregateEnsemble(winResults.filter(Boolean), ensembleRuns, doc.text);
+            if (winAgg.incomplete) {
+              // Ein unentschiedenes Fenster = ein Teil des Gesetzes ist ungeprüft. Dann ist
+              // das ganze Doc unvollständig; die restlichen Fenster jetzt noch zu bezahlen
+              // wäre Verschwendung, weil das Doc ohnehin komplett wiederholt wird.
+              incomplete = `Fenster ${w + 1}/${windows.length}: ${winAgg.failedRuns} von ${ensembleRuns} Läufen ausgefallen`;
+              break;
+            }
+            perWindow.push(winAgg);
           }
-          aggregated = mergeChunkAggregates(perWindow, doc.text, ensembleRuns);
+          if (!incomplete) aggregated = mergeChunkAggregates(perWindow, doc.text, ensembleRuns);
         } else {
           console.log(`[ANALYZE] [${++done}/${total}] ${doc.doc_id} (${charCount} chars, ${ensembleRuns} runs)`);
-          rawResults = await runEnsembleOnText(doc, doc.text, '', 0);
+          rawResults = await runEnsembleOnText(doc, doc.text, '', 0, errs);
           aggregated = aggregateEnsemble(rawResults.filter(Boolean), ensembleRuns, doc.text);
+          if (aggregated.incomplete) incomplete = `${aggregated.failedRuns} von ${ensembleRuns} Läufen ausgefallen`;
+        }
+
+        if (incomplete) {
+          recordFailure(doc, incomplete, errs);
+          updatePipelineStatus('analyze', 1);
+          return;
         }
 
         if (aggregated.decided && aggregated.hits.length > 0) {
@@ -141,20 +183,21 @@ async function analyze() {
           );
         }
 
+        saved++;
+        consecutiveFailed = 0;
         updatePipelineStatus('analyze', 1);
       } catch (err) {
-        console.error(`  [ANALYZE] Error for ${doc.doc_id}:`, err.message);
-        db.prepare(`
-          INSERT OR REPLACE INTO analyses (doc_id, description, raw_response, model, run_session, analyzed_at)
-          VALUES (?, ?, ?, ?, ?, datetime('now'))
-        `).run(doc.doc_id, `ERROR: ${err.message}`, err.message, analyzeModelName(), runSession);
-        errors++;
+        // Fehler = kein Ergebnis. Früher schrieb dieser Zweig per INSERT OR REPLACE eine
+        // ERROR-Zeile nach analyses: das überschrieb eine evtl. gute ältere Analyse und
+        // sperrte das Doc über die Resumability für immer. Jetzt wird nur protokolliert.
+        if (err.fatal && !abortReason) abortReason = err.message;
+        recordFailure(doc, 'Fehler: ' + err.message, errs);
         updatePipelineStatus('analyze', 1);
       }
     }
 
     // Concurrent pool: stagger requests
-    while (idx < analyzeList.length) {
+    while (idx < analyzeList.length && !abortReason) {
       const batch = analyzeList.slice(idx, idx + concurrency);
       idx += concurrency;
 
@@ -163,12 +206,26 @@ async function analyze() {
       );
       await Promise.all(promises);
 
+      // Sicherung (Circuit Breaker): mehrere Docs in Folge ohne Ergebnis deuten auf ein
+      // systemisches Problem (Server weg, Netz, Limit) -> anhalten statt weiterzählen.
+      if (!abortReason && consecutiveFailed >= maxConsecutive) {
+        abortReason = `${consecutiveFailed} Dokumente in Folge ohne auswertbares Ergebnis`;
+      }
+
       if (config.requestDelayMs > 0) {
         await new Promise(r => setTimeout(r, config.requestDelayMs));
       }
     }
 
-    console.log(`[ANALYZE] Done: ${done} analyzed, ${errors} errors`);
+    if (abortReason) {
+      process.exitCode = 1;
+      console.error(`[ANALYZE] ABBRUCH: ${abortReason}`);
+      console.error(`[ANALYZE] ${analyzeList.length - done} Dokumente dieses Laufs wurden nicht mehr begonnen. Ursache beheben, dann erneut starten — bereits Gespeichertes bleibt erhalten.`);
+    }
+    console.log(`[ANALYZE] Done: ${done} bearbeitet, ${saved} gespeichert, ${failedDocs.length} ohne Ergebnis`);
+    if (failedDocs.length) {
+      console.log(`[ANALYZE] Ohne Ergebnis (bleiben offen, Details: Tabelle analysis_failures): ${failedDocs.join(', ')}`);
+    }
   } catch (err) {
     console.error('[ANALYZE] Fatal:', err);
   } finally {
@@ -180,6 +237,85 @@ async function analyze() {
       console.error('[REVIEW] Report fehlgeschlagen:', e.message);
     }
   }
+}
+
+// === AUSFALL-BEHANDLUNG (fail-closed: ein Ausfall darf nie wie ein Ergebnis aussehen) ===
+
+// Gültiger Lauf = auswertbares Ergebnis mit hits-Array. Auch 0 Treffer ist ein Ergebnis
+// ("geprüft, nichts gefunden"). null/kaputt = Ausfall und damit KEINE Stimme.
+function isValidRun(r) {
+  return !!r && typeof r === 'object' && Array.isArray(r.hits);
+}
+
+// Trägt das Ensemble eine Entscheidung? Die Mehrheits-Schwelle bleibt UNVERÄNDERT
+// (⌊N/2⌋+1 von totalRuns). Neu ist nur: ausgefallene Läufe zählen nicht mehr still
+// als Nein-Stimme.
+//   'hits'        die Mehrheit meldet Treffer
+//   'none'        die Mehrheit wäre selbst dann unerreichbar, wenn alle Ausfälle Treffer
+//                 gemeldet hätten -> echter Negativbefund
+//   'incomplete'  die Ausfälle hätten das Ergebnis kippen können -> KEIN Ergebnis
+function ensembleOutcome(results, totalRuns) {
+  const majority = Math.floor(totalRuns / 2) + 1;
+  const valid = (results || []).filter(isValidRun);
+  const yes = valid.filter(r => r.hits.length > 0).length;
+  const failed = Math.max(0, totalRuns - valid.length);
+  const outcome = yes >= majority ? 'hits' : (yes + failed < majority ? 'none' : 'incomplete');
+  return { outcome, yes, no: valid.length - yes, failed, majority };
+}
+
+// Systemische Fehler, bei denen jeder weitere Aufruf genauso scheitert: API-Key fehlt,
+// Key ungültig (HTTP 401), Guthaben leer (HTTP 402). Bewusst eng gehalten — alles andere
+// (Timeout, 5xx, einzelnes kaputtes JSON) kann doc-spezifisch sein und läuft über die
+// Folge-Ausfall-Sicherung (maxConsecutiveFailures).
+function isFatalError(message) {
+  return /API_KEY fehlt|HTTP 40[12]\b/.test(message || '');
+}
+
+// Altlast-Erkennung: eine analyses-Zeile, die in Wahrheit ein Ausfall ist — ERROR-Zeile
+// oder ein Ensemble, in dem KEIN EINZIGER Lauf ein Ergebnis lieferte. Bewusst eng: nur
+// der eindeutige Totalausfall. Unlesbares/altes Format wird nicht angefasst.
+function isFailedAnalysisRow(description, rawResponse) {
+  if (/^ERROR:/.test(description || '')) return true;
+  let raw;
+  try { raw = JSON.parse(rawResponse || 'null'); } catch { return false; }
+  return Array.isArray(raw) && raw.length > 0 && raw.every(x => x === null);
+}
+
+// Welche Docs sind offen?
+//  (a) noch nie analysiert bzw. Analyse älter als der Text (wie bisher), plus
+//  (b) "analysiert", aber in Wahrheit ein Ausfall (isFailedAnalysisRow) — solche Altlasten
+//      werden automatisch nachgeholt, ohne dass jemand Zeilen löschen muss.
+// Reihenfolge: Docs mit früheren Ausfällen ZULETZT. Sonst stünden chronische Problemfälle
+// bei jedem Lauf vorn und würden die Folge-Ausfall-Sicherung sofort wieder auslösen.
+function selectPendingDocs(db) {
+  if (config.testDocIds && config.testDocIds.length > 0) {
+    const ph = config.testDocIds.map(() => '?').join(',');
+    return db.prepare(
+      `SELECT d.* FROM documents d WHERE d.text IS NOT NULL AND d.char_count > 10 AND d.doc_id IN (${ph})`
+    ).all(...config.testDocIds);
+  }
+
+  const failedIds = db.prepare(`
+    SELECT a.doc_id, a.description, a.raw_response
+    FROM analyses a JOIN documents d ON d.doc_id = a.doc_id
+    WHERE a.analyzed_at >= d.downloaded_at
+  `).all().filter(r => isFailedAnalysisRow(r.description, r.raw_response)).map(r => r.doc_id);
+
+  const params = [...failedIds];
+  const failedClause = failedIds.length
+    ? ` OR d.doc_id IN (${failedIds.map(() => '?').join(',')})`
+    : '';
+  let query = `
+    SELECT d.* FROM documents d
+    LEFT JOIN (SELECT doc_id, COUNT(*) AS n FROM analysis_failures GROUP BY doc_id) f ON f.doc_id = d.doc_id
+    WHERE d.text IS NOT NULL AND d.char_count > 10
+      AND (NOT EXISTS (SELECT 1 FROM analyses a WHERE a.doc_id = d.doc_id AND a.analyzed_at >= d.downloaded_at)${failedClause})`;
+  if (config.maxDocChars > 0) {
+    query += ` AND d.char_count <= ?`;
+    params.push(config.maxDocChars);
+  }
+  query += ` ORDER BY COALESCE(f.n, 0), d.id`;
+  return db.prepare(query).all(...params);
 }
 
 // === ENSEMBLE AGGREGATION ===
@@ -213,12 +349,17 @@ function unrank(n) {
 }
 
 function aggregateEnsemble(results, totalRuns, docText) {
+  results = (results || []).filter(isValidRun); // Ausfälle sind keine Stimmen
   const majority = Math.floor(totalRuns / 2) + 1; // 3 bei 5
 
-  // Ebene 1: Dokument-Entscheid (Mehrheit)
-  const aVotes = results.filter(r => r.hits && r.hits.length > 0).length;
-  const decided = aVotes >= majority;
+  // Ebene 1: Dokument-Entscheid (Mehrheit) — nur, wenn die gültigen Läufe ihn tragen.
+  const eo = ensembleOutcome(results, totalRuns);
+  const aVotes = eo.yes;
   const confidence = aVotes + '/' + totalRuns;
+  if (eo.outcome === 'incomplete') {
+    return { incomplete: true, failedRuns: eo.failed, decided: false, hits: [], confidence };
+  }
+  const decided = eo.outcome === 'hits';
   const legalBasis = classifyLegalBasis(docText);
   const needsReview = decided && (aVotes < totalRuns || legalBasis.length > 0);
 
@@ -446,4 +587,7 @@ if (require.main === module) {
   analyze().catch(console.error);
 }
 
-module.exports = { analyze, splitIntoWindows, mergeChunkAggregates };
+module.exports = {
+  analyze, splitIntoWindows, mergeChunkAggregates,
+  aggregateEnsemble, ensembleOutcome, isValidRun, isFatalError, isFailedAnalysisRow, selectPendingDocs
+};

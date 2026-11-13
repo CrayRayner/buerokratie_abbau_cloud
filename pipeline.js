@@ -15,6 +15,11 @@ async function showStatus() {
   const crawlCount = db.prepare('SELECT COUNT(*) as c FROM crawl_jobs').get();
   const analysisCount = db.prepare('SELECT COUNT(*) as c FROM analyses WHERE priority IS NOT NULL').get();
   const errorCount = db.prepare("SELECT COUNT(*) as c FROM analyses WHERE description LIKE 'ERROR:%'").get();
+  // Docs mit protokolliertem Ausfall, für die seither keine Analyse gespeichert wurde
+  const failOpen = db.prepare(`
+    SELECT COUNT(DISTINCT f.doc_id) as c FROM analysis_failures f
+    WHERE NOT EXISTS (SELECT 1 FROM analyses a WHERE a.doc_id = f.doc_id AND a.analyzed_at >= f.created_at)
+  `).get();
   const aCount = db.prepare("SELECT COUNT(*) as c FROM analyses WHERE priority = 'A'").get();
   const bCount = db.prepare("SELECT COUNT(*) as c FROM analyses WHERE priority = 'B'").get();
 
@@ -23,6 +28,7 @@ async function showStatus() {
   console.log(`  Crawl jobs: ${crawlCount.c}`);
   console.log(`  Analyzed: ${analysisCount.c}`);
   console.log(`  Errors: ${errorCount.c}`);
+  console.log(`  Ohne Ergebnis (offen nach Ausfall): ${failOpen.c}`);
   console.log(`  Priority A: ${aCount.c}`);
   console.log(`  Priority B: ${bCount.c}`);
 

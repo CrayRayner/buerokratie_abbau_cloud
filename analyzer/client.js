@@ -193,9 +193,10 @@ function handleCompletion(data, docId, tag) {
     throw new Error('Token-Limit erreicht, Antwort abgeschnitten');
   }
 
+  // Leere Antwort = Ausfall, KEINE 0-Treffer-Stimme. Ein echtes "nichts gefunden" kommt
+  // als {"hits": []} zurück; leer heißt, das Modell hat gar nicht geantwortet.
   if (!rawContent.trim()) {
-    console.error(`  [${tag}] Empty content for ${docId} (finish: ${reason})`);
-    return { hits: [], summary: `[${tag}: empty content]` };
+    throw new Error(`Leere Antwort vom Modell (finish: ${reason})`);
   }
 
   const usage = data.usage || {};

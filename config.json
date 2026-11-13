@@ -13,6 +13,7 @@
   "concurrency": 1,
   "requestDelayMs": 1000,
   "maxAnalyzeDocs": 50,
+  "maxConsecutiveFailures": 3,
   "ensembleRuns": 3,
   "ensembleTemperature": 0.4,
   "maxTokens": 32000,
