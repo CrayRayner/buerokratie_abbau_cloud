@@ -316,11 +316,15 @@ Die meisten Normen liegen darunter und werden **in einem Call** analysiert.
 werden automatisch **gechunkt** statt abgeschnitten — genau die enthalten oft die meisten
 Belastungen. Ablauf (`analyzer/index.js`):
 
-1. **An §-Grenzen splitten** (möglich, weil die §-Marker seit dem Crawl-Fix im Text stehen):
-   Der Text wird in Fenster ≤ `chunkThreshold` zerlegt, nie mitten im Paragraphen. Die
-   Präambel (Ermächtigungsgrundlage) kommt ins erste Fenster.
-2. **Größen-Fallback:** §-arme Riesen (z. B. Tabellen-Verordnungen) werden zusätzlich hart
-   nach Größe geteilt → **volle Abdeckung, kein Textverlust**.
+1. **An Gliederungsgrenzen splitten** — an den *echten* Überschriften: `§` bei Verordnungen,
+   `Art.` bei bayerischen Gesetzen, dazu Anlagen (`findHeadings` in `classify.js`). Echt heißt:
+   die Nummer steht allein in ihrer Zeile. Zeilen der Inhaltsübersicht („Art. 3 Allgemeine
+   Anforderungen") und Verweise („§ 35 BauGB") sind keine Grenze. Der Text wird in Fenster
+   ≤ `chunkThreshold` zerlegt, nie mitten im Paragraphen/Artikel. Alles vor der ersten
+   Überschrift (Titel, Ermächtigungsgrundlage, Inhaltsübersicht) kommt ins erste Fenster.
+2. **Riesen-Einheiten:** Ist eine einzelne Einheit allein schon größer als ein Fenster (große
+   Anlage, Tabellen-Verordnung), wird sie zusätzlich geteilt — an Absatz-, sonst Zeilen-, sonst
+   Wortgrenze, nie mitten im Wort → **volle Abdeckung, kein Textverlust**.
 3. **Jedes Fenster einzeln im Ensemble** bewerten (`ensembleRuns` Läufe pro Fenster).
 4. **Grounding gegen den Volltext** — jede Belegstelle wird gegen das ganze Dokument
    verankert, nicht nur gegen ihr Fenster.
@@ -406,6 +410,25 @@ Zuordnung *Beleg → Pflicht → Vorschlag → Risiko* (statt großer Sammellist
 | `human_review` | **JA** = vor Übernahme juristisch prüfen |
 | `Zweitcheck` / `Zweitcheck_Begruendung` | Gegenmeinung eines unabhängigen Modells zu genau diesem Vorschlag (siehe [Zweitcheck](#kritischer-zweitcheck)) |
 | `Endstatus` | Prioritaet + Zweitcheck-Urteil kombiniert (z. B. `A · bestätigt`, `B · infrage gestellt`) — reine Anzeigehilfe, **überschreibt die Prioritaet nie** |
+
+### Normstelle: wo steht das Zitat?
+
+Die Spalte `Normstelle` („§ 3 Abs. 1", „Art. 28 Abs. 3", „Anlage 2") stammt **nicht vom Modell**,
+sondern wird deterministisch abgeleitet (`resolveNorm` in `classify.js`): Das wörtliche Zitat wird
+im Gesetzestext lokalisiert, dann zählt die letzte **echte Überschrift** davor (dieselbe
+Gliederungs-Erkennung wie beim Chunking) und der letzte Absatz-Marker `(n)` am Zeilenanfang.
+
+- Funde in der **Inhaltsübersicht** zählen nicht, wenn dasselbe Zitat auch im Regelungstext steht.
+- **Gekürzte Zitate** („A … B") und vom Modell vorangestellte Normangaben werden über eine
+  Abstimmung der 25-Zeichen-Fenster lokalisiert; maßgeblich ist, wo das Zitat **beginnt**.
+- Liegt das Zitat vor der ersten Überschrift (Einleitungsformel), bleibt die Normstelle leer —
+  lieber keine als eine geratene.
+
+Gemessen gegen eine unabhängig ermittelte Wahrheit (zeilenweiser Durchlauf, `tests/test-normstelle.js`):
+≥ 99 % richtige Überschrift bei Gesetzen wie Verordnungen. Die frühere Fassung („letztes §-Zeichen vor
+der Fundstelle") lag bei Verordnungen nur in 56 % der prüfbaren Fälle richtig und bei Gesetzen in
+0,4 % — sie griff Verweise wie „§ 35 BauGB" und kannte kein „Art.". **Grenze:** Geprüft ist, dass
+die Fundstelle zum Zitat passt — nicht, dass das Zitat die behauptete Pflicht trägt.
 
 ### Reform-Priorität: pro Vorschlag, nicht pro Dokument
 

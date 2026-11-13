@@ -2,7 +2,7 @@ const { initSchema, getDb, setPipelineRunning, setPipelineTotal, updatePipelineS
 const { buildPrompt } = require('./prompt');
 const { analyzeWithLLM, analyzeModelName, PROVIDER } = require('./client');
 const { generateReport } = require('../review-report');
-const { isGrounded } = require('../classify');
+const { isGrounded, findHeadings } = require('../classify');
 const config = require('../config.json');
 
 async function analyze() {
@@ -106,10 +106,10 @@ async function analyze() {
         let incomplete = null; // Text-Grund, wenn ein Ensemble keine Entscheidung trägt
 
         if (charCount > chunkThreshold) {
-          // Große Gesetze: an §-Grenzen in Fenster splitten, jedes Fenster im Ensemble
+          // Große Gesetze: an §-/Art.-Grenzen in Fenster splitten, jedes Fenster im Ensemble
           // bewerten, Treffer mergen. Grounding läuft gegen den VOLLTEXT.
           const windows = splitIntoWindows(doc.text, chunkThreshold);
-          console.log(`[ANALYZE] [${++done}/${total}] ${doc.doc_id} (${charCount} chars) — GECHUNKT in ${windows.length} §-Fenster`);
+          console.log(`[ANALYZE] [${++done}/${total}] ${doc.doc_id} (${charCount} chars) — GECHUNKT in ${windows.length} Fenster`);
           const perWindow = [];
           for (let w = 0; w < windows.length; w++) {
             const winResults = await runEnsembleOnText(doc, windows[w], `#f${w + 1}`, w * ensembleRuns, errs);
@@ -499,40 +499,60 @@ function median(arr) {
 
 // === CHUNKING (große Gesetze > chunkThreshold) ===
 
-// Text an §-Grenzen in Fenster <= maxChars teilen. Präambel (Ermächtigung) kommt ins
-// erste Fenster; ein einzelner übergroßer §-Block wird zu einem eigenen (Über-)Fenster
-// (prompt.js kappt den dann bei 80k). Kein Split mitten im Paragraphen.
-function splitIntoWindows(text, maxChars) {
-  const re = /(?:^|\n)\s*§\s*\d+[a-z]?/g;
-  const idxs = [];
-  let m;
-  while ((m = re.exec(text)) !== null) idxs.push(m.index);
-
-  let windows;
-  if (idxs.length < 2) {
-    windows = [text]; // 0–1 § → keine §-Struktur
-  } else {
-    const segs = [];
-    for (let i = 0; i < idxs.length; i++) {
-      segs.push(text.slice(idxs[i], i + 1 < idxs.length ? idxs[i + 1] : text.length));
-    }
-    windows = [];
-    let cur = text.slice(0, idxs[0]); // Präambel vor dem ersten §
-    for (const seg of segs) {
-      if (cur.length && cur.length + seg.length > maxChars) { windows.push(cur); cur = ''; }
-      cur += seg;
-    }
-    if (cur.trim()) windows.push(cur);
-  }
-
-  // Fallback: übergroße Fenster (kein §-Struktur / Riesen-§, z.B. Tabellen-Verordnungen)
-  // hart nach Größe teilen → volle Abdeckung statt 80k-Kappung.
+// Eine einzelne Einheit, die allein schon > maxChars ist (Riesen-Anlage, Tabellen-
+// Verordnung), an der feinsten noch sinnvollen Grenze teilen: Absatz/Block ("\n\n"),
+// sonst Zeile, sonst Wort. Erst wenn es in der oberen Fensterhälfte gar keine solche
+// Grenze gibt, wird hart geschnitten. Verlustfrei: Teile aneinandergehängt == Eingabe.
+function splitOversized(s, maxChars) {
   const out = [];
-  for (const win of windows) {
-    if (win.length <= maxChars) { out.push(win); continue; }
-    for (let i = 0; i < win.length; i += maxChars) out.push(win.slice(i, i + maxChars));
+  let start = 0;
+  const minCut = Math.floor(maxChars / 2); // keine Mini-Stücke: Grenze muss in der oberen Hälfte liegen
+  while (s.length - start > maxChars) {
+    const limit = start + maxChars;
+    let cut = -1;
+    for (const sep of ['\n\n', '\n', ' ']) {
+      const at = s.lastIndexOf(sep, limit - sep.length);
+      if (at >= start + minCut) { cut = at + sep.length; break; }
+    }
+    if (cut < 0) cut = limit; // letzter Ausweg: harter Schnitt
+    out.push(s.slice(start, cut));
+    start = cut;
   }
+  if (start < s.length) out.push(s.slice(start));
   return out;
+}
+
+// Text an Gliederungsgrenzen in Fenster <= maxChars teilen — an ECHTEN Überschriften
+// (§ bei Verordnungen, Art. bei bayerischen Gesetzen, Anlagen; siehe findHeadings in
+// classify.js). Früher kannte der Splitter nur "§": alle 242 Gesetze galten als
+// "strukturlos" und wurden stumpf alle 70.000 Zeichen zerschnitten, mitten im Wort.
+//  - Alles vor der ersten Überschrift (Titel, Ermächtigung, Inhaltsübersicht) ist die
+//    Präambel und kommt ins erste Fenster.
+//  - Nie ein Schnitt innerhalb eines Paragraphen/Artikels, solange der in ein Fenster passt.
+//  - Verlustfrei: Fenster aneinandergehängt == Originaltext.
+function splitIntoWindows(text, maxChars) {
+  const units = [];
+  let pos = 0;
+  for (const h of findHeadings(text)) {
+    if (h.index > pos) { units.push(text.slice(pos, h.index)); pos = h.index; }
+  }
+  units.push(text.slice(pos));
+
+  const pieces = [];
+  for (const u of units) {
+    if (u.length <= maxChars) pieces.push(u);
+    else pieces.push(...splitOversized(u, maxChars));
+  }
+
+  // Stücke der Reihe nach in Fenster packen, bis das nächste nicht mehr hineinpasst.
+  const windows = [];
+  let cur = '';
+  for (const p of pieces) {
+    if (cur.length && cur.length + p.length > maxChars) { windows.push(cur); cur = ''; }
+    cur += p;
+  }
+  if (cur.length) windows.push(cur);
+  return windows.length ? windows : [text];
 }
 
 // Fenster-Aggregate zu EINEM Doc-Ergebnis mergen (Treffer dedupen, Doc-Felder ableiten).
@@ -588,6 +608,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  analyze, splitIntoWindows, mergeChunkAggregates,
+  analyze, splitIntoWindows, splitOversized, mergeChunkAggregates,
   aggregateEnsemble, ensembleOutcome, isValidRun, isFatalError, isFailedAnalysisRow, selectPendingDocs
 };

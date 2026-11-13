@@ -115,41 +115,129 @@ function buildNormMap(text) {
   return { norm, map };
 }
 
-// Normstelle ableiten: direkt aus dem Zitat, wenn das Modell sie vorangestellt
-// hat, sonst Prosa im Quelltext lokalisieren und §/Absatz davor greifen.
-function resolveNorm(quote, text, nm) {
-  const q = (quote || '').trim();
-  const direct = q.match(/^§\s*(\d+[a-z]?)(?:\s*Abs\.?\s*(\d+)|\s*\((\d+)\))?/i);
-  if (direct) {
-    const abs = direct[2] || direct[3];
-    return abs ? `§ ${direct[1]} Abs. ${abs}` : `§ ${direct[1]}`;
+// --- Gliederung eines Normtexts: § (Verordnungen), Art. (bayerische Gesetze), Anlagen ---
+// EINZIGE Stelle, die weiß, was eine Gliederungsgrenze ist — genutzt vom Splitter
+// (analyzer/index.js) UND von resolveNorm, damit beide dieselbe Sicht aufs Gesetz haben.
+//
+// Echte Überschriften stehen im Korpus ALLEIN in ihrer Zeile ("Art. 3", der Titel folgt
+// in der nächsten Zeile). Bewusst KEINE Grenze sind:
+//   "Art. 3 Allgemeine Anforderungen"  -> Zeile der Inhaltsübersicht am Textanfang
+//   "§ 12 gilt entsprechend …"         -> Fließtext, der zufällig am Zeilenanfang steht
+//   "§ 35 BauGB", "§ 2 des Gesetzes"   -> Verweis auf eine andere Norm
+// Gemessen am Korpus (729 Docs): 15.960 solche Überschriften in 727 Docs, 99,5 %
+// fortlaufend nummeriert. Anlagen: "Anlage 2", "Anlage 1.3: …", "Anlage (zu § 3)".
+const HEADING_SRC = '(?:^|\\n)[ \\t]*(?:' +
+  '(Art\\.|§)[ \\t\\u00a0]*(\\d+[a-z]?)[ \\t]*(?=\\n|$)' +
+  '|Anlagen?(?:[ \\t]+(\\d+(?:\\.\\d+)*[a-z]?))?[ \\t]*(?=\\n|$|:|\\(zu\\b|zu\\b)' +
+  ')';
+
+// Liefert alle Überschriften in Dokumentreihenfolge:
+//   index = Zeilenanfang der Überschrift, end = Ende der Überschriftszeile,
+//   kind  = '§' | 'Art.' | 'Anlage', num = Nummer ('' bei unnummerierter Anlage),
+//   label = Anzeigeform ("Art. 28", "§ 3", "Anlage 2").
+function findHeadings(text) {
+  const out = [];
+  const re = new RegExp(HEADING_SRC, 'g');
+  let m;
+  while ((m = re.exec(text || '')) !== null) {
+    const kind = m[1] || 'Anlage';
+    const num = m[1] ? m[2] : (m[3] || '');
+    out.push({
+      index: m.index + (m[0][0] === '\n' ? 1 : 0),
+      end: m.index + m[0].length,
+      kind, num,
+      label: kind === 'Anlage' ? ('Anlage' + (num ? ' ' + num : '')) : `${kind} ${num}`
+    });
   }
-  const qn = normMatch(q);
-  if (qn.length < 12) return '';
-  // Belegstelle im Volltext lokalisieren: erst die ersten 30 Zeichen zusammenhaengend
-  // (praezise, haeufigster Fall). Scheitert das — typisch, wenn das Modell das Zitat
-  // mit "..." gekuerzt hat und der 30er-Anker quer ueber die Luecke liegt — auf die
-  // Fenster-Suche von isGrounded zurueckfallen: erstes woertlich passendes 25er-Fenster.
-  // Dadurch bekommen auch gekuerzte (aber gegroundete) Zitate ihre Normstelle.
-  let idx = nm.norm.indexOf(qn.slice(0, 30));
-  if (idx < 0) {
-    for (let i = 0; i + 25 <= qn.length; i += 5) {
-      const j = nm.norm.indexOf(qn.slice(i, i + 25));
-      if (j >= 0) { idx = j; break; }
+  return out;
+}
+
+// Alle Fundstellen eines Teilstrings (gedeckelt, damit Floskeln nicht ausufern).
+function allIndexes(hay, needle, cap) {
+  const out = [];
+  let j = hay.indexOf(needle);
+  while (j >= 0 && out.length < cap) { out.push(j); j = hay.indexOf(needle, j + 1); }
+  return out;
+}
+
+// Liegt die Position in einer Zeile der Inhaltsübersicht ("§ 5 Eintragungsantrag …",
+// Nummer UND Titel in einer Zeile)? Solche Übersichten stehen nicht nur am Textanfang,
+// sondern vor jedem Teil/Abschnitt — ein Fund dort ist nie die eigentliche Regelung.
+function isTocLine(text, pos) {
+  const ls = text.lastIndexOf('\n', pos - 1) + 1;
+  return /^[ \t]*(?:Art\.|§)[ \t ]*\d+[a-z]?[ \t]+\S/.test(text.slice(ls, ls + 80));
+}
+
+// Zitat im Volltext lokalisieren -> Position im ORIGINALtext (oder -1).
+//  1) Ganzes Zitat wörtlich (Normalfall). Bei mehreren Fundstellen die erste, die nicht
+//     in der Inhaltsübersicht liegt.
+//  2) Sonst stimmen die 25-Zeichen-Fenster des Zitats ab: jedes Fenster, das im Text
+//     vorkommt, "schlägt" einen Zitatanfang vor (Fundstelle minus Fenster-Versatz).
+//     Fenster aus demselben wörtlich übernommenen Stück schlagen denselben Anfang vor.
+//     Ein Stück gilt als belastbar ab 2 Stimmen (= mind. 30 Zeichen am Stück wörtlich).
+//     Es gewinnt das belastbare Stück, das im Zitat am WEITESTEN VORN steht — eine
+//     Fundstelle zeigt dorthin, wo das Zitat beginnt, nicht wo es am längsten ist.
+//     Das trägt gekürzte Zitate ("A … B") und vom Modell vorangestellte Normangaben
+//     ("§ 3 Abs. 1: …"), ohne dass ein einzelnes zufällig passendes Fenster (häufige
+//     Floskel irgendwo im Text) entscheidet.
+function locateQuote(qn, text, nm) {
+  if (!qn || qn.length < 12) return -1;
+  const preferBody = cands => {
+    const body = cands.find(j => !isTocLine(text, nm.map[j]));
+    return nm.map[body !== undefined ? body : cands[0]];
+  };
+  const whole = allIndexes(nm.norm, qn, 20);
+  if (whole.length) return preferBody(whole);
+
+  // implizierter Zitatanfang -> { n: Stimmen, i: frühestes Fenster im Zitat, pos: dessen Fundstelle }
+  const votes = new Map();
+  for (let i = 0; i + 25 <= qn.length; i += 5) {
+    for (const j of allIndexes(nm.norm, qn.slice(i, i + 25), 20)) {
+      const v = votes.get(j - i);
+      if (v) v.n++; else votes.set(j - i, { n: 1, i, pos: j });
     }
   }
-  if (idx < 0) return '';
-  const origPos = nm.map[idx];
-  // +6 Zeichen über die Fundstelle hinaus, damit ein direkt am Zitat-Anfang
-  // stehendes "§ 3" noch erfasst wird.
-  const region = text.slice(0, origPos + 6);
-  const paras = [...region.matchAll(/§\s*(\d+[a-z]?)/g)];
-  if (!paras.length) return '';
-  const last = paras[paras.length - 1];
-  const between = text.slice(last.index, origPos + 1);
-  const absMatches = [...between.matchAll(/\((\d+)\)/g)];
-  const abs = absMatches.length ? absMatches[absMatches.length - 1][1] : '';
-  return abs ? `§ ${last[1]} Abs. ${abs}` : `§ ${last[1]}`;
+  if (!votes.size) return -1;
+  const all = [...votes.values()];
+  const strong = all.filter(v => v.n >= 2);
+  const pool = strong.length ? strong : all;
+  const firstI = Math.min(...pool.map(v => v.i));
+  let top = pool.filter(v => v.i === firstI);
+  const best = Math.max(...top.map(v => v.n));
+  top = top.filter(v => v.n === best);
+  return preferBody(top.map(v => v.pos).sort((a, b) => a - b));
+}
+
+// Normstelle ableiten ("§ 3 Abs. 1", "Art. 28 Abs. 3", "Anlage 2"): das Zitat im Quelltext
+// lokalisieren und die letzte ECHTE Überschrift davor nehmen (findHeadings).
+// Früher: "letztes §-Zeichen vor der Fundstelle" — das griff auch Verweise ("§ 35 BauGB")
+// und kannte kein "Art.", lieferte also für jedes bayerische Gesetz eine falsche Stelle.
+function resolveNorm(quote, text, nm) {
+  const q = (quote || '').trim();
+  const origPos = locateQuote(normMatch(q), text, nm);
+  if (origPos >= 0) {
+    if (!nm.headings) nm.headings = findHeadings(text); // einmal pro Dokument, an nm gecacht
+    let h = null;
+    for (const cand of nm.headings) { if (cand.index <= origPos) h = cand; else break; }
+    // Zitat liegt vor der ersten Überschrift (Einleitungsformel, Inhaltsübersicht):
+    // lieber keine Normstelle als eine geratene.
+    if (!h) return '';
+    if (h.kind === 'Anlage') return h.label;
+    // Absatz: letzter "(n)" am Zeilenanfang zwischen Überschrift und Fundstelle. +3, damit
+    // ein Zitat, das selbst mit "(2) …" beginnt, seinen eigenen Absatz-Marker noch sieht.
+    const between = text.slice(h.end, origPos + 3);
+    const abs = [...between.matchAll(/(?:^|\n)[ \t]*\((\d+[a-z]?)\)/g)].pop();
+    return abs ? `${h.label} Abs. ${abs[1]}` : h.label;
+  }
+  // Nicht lokalisierbar (z.B. sehr kurzes Zitat): nur wenn das Modell die Normstelle
+  // selbst vorangestellt hat, diese übernehmen — sonst leer.
+  const direct = q.match(/^(§|Art\.)\s*(\d+[a-z]?)(?:\s*Abs\.?\s*(\d+[a-z]?)|\s*\((\d+[a-z]?)\))?/i);
+  if (direct) {
+    const kind = direct[1] === '§' ? '§' : 'Art.';
+    const abs = direct[3] || direct[4];
+    return abs ? `${kind} ${direct[2]} Abs. ${abs}` : `${kind} ${direct[2]}`;
+  }
+  return '';
 }
 
 // --- Kombinierte Endwertung: Priorität + Zweitcheck-Urteil sichtbar zusammen ---
@@ -169,6 +257,6 @@ function parseHits(desc) {
 module.exports = {
   classifyAddressee,
   legalShort, legalDisplay, reformPriority, bestHitPriority, PRIO_RANK,
-  normMatch, isGrounded, buildNormMap, resolveNorm,
+  normMatch, isGrounded, buildNormMap, findHeadings, resolveNorm,
   endstatus, parseHits
 };
